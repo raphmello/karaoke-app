@@ -384,7 +384,7 @@ O volume `karaoke-data` é montado na API e no worker com escrita, e no Caddy s�
 
 - No Windows: driver NVIDIA atualizado, Docker Desktop com backend WSL2 (a GPU chega aos containers por ele) e regra no Firewall liberando a porta 8080 na rede privada.
 - Reserve o IP do PC no roteador, para o QR Code não mudar.
-- `.env` com `HOST_PIN`, `PUBLIC_BASE_URL=http://<IP do PC>:8080`, e modelos escolhidos.
+- `.env` com `HOST_PIN`, `PUBLIC_BASE_URL=http://<IP do PC>:8080` e os modelos escolhidos.
 - `docker compose up -d` sobe tudo; a TV abre `http://<IP do PC>:8080/tv`.
 - Desenvolvimento: `pnpm dev` fora do Docker, com proxy para a API, que roda com recarga automática.
 - Sem HTTPS na rede local o celular não instala o app como PWA, mas o site funciona normalmente.
