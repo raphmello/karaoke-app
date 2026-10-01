@@ -38,8 +38,23 @@ python scripts/serve.py                              # página em http://localho
 
 Os modelos ficam no volume Docker `spike-models` e são baixados uma vez.
 
+## Tom em tempo real (spike 0c)
+
+A página `realtime/index.html` muda o tom ao vivo no navegador com o [rubberband-web](https://github.com/delude88/rubberband-web). Ela usa os stems da etapa 2c, o render R3 da etapa 4 como comparação e o tom original detectado pelo essentia. Para prepará-la, rode a partir de `spikes/phase0`:
+
+```bash
+docker run --rm --entrypoint python -v "$PWD:/spike" karaoke-worker /spike/scripts/keys.py
+npm pack rubberband-web@0.2.1 && tar xzf rubberband-web-0.2.1.tgz && mkdir -p work/vendor && cp package/public/rubberband-processor.js work/vendor/ && rm -r package rubberband-web-0.2.1.tgz
+python scripts/serve.py
+```
+
+Depois abra `http://localhost:8765/realtime/index.html`. O primeiro comando usa a imagem do worker da fase 1, que tem o essentia. O arquivo do rubberband-web fica em `work/` e não vai para o git, porque é código GPL de terceiros.
+
 ## Saídas
 
 - `work/results/*.json`: medições brutas de cada etapa.
 - `work/results/tables.md`: tabelas usadas no [RESULTS.md](RESULTS.md).
-- `work/evidence/index.html`: página local para ouvir e comparar os modelos, com prévia do karaokê palavra por palavra. Abra direto no navegador.
+- `work/evidence/index.html`: página local para ouvir e comparar os modelos, com prévia do karaokê palavra por palavra.
+- `realtime/index.html`: tom em tempo real, com medição de CPU e atraso.
+
+As duas páginas precisam do `scripts/serve.py`, que aceita Range; o servidor padrão do Python não deixa o navegador pular dentro do áudio.

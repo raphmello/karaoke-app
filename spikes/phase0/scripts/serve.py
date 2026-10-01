@@ -1,7 +1,9 @@
-"""Serve work/ over HTTP with Range support, so the evidence page can seek inside the audio files.
+"""Serve the spike folder over HTTP with Range support, so the pages can seek inside the audio files.
 
 Python's built-in http.server ignores Range: the browser then cannot learn an Ogg/Opus file's duration or
 jump to another point in it. Usage: python serve.py [port]
+
+Pages: /work/evidence/index.html (separation and lyrics) and /realtime/index.html (real-time key change).
 """
 from __future__ import annotations
 
@@ -12,7 +14,7 @@ from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-WORK = Path(os.environ.get("SPIKE_WORK", Path(__file__).resolve().parents[1] / "work"))
+ROOT = Path(os.environ.get("SPIKE_ROOT", Path(__file__).resolve().parents[1]))
 RANGE = re.compile(r"bytes=(\d*)-(\d*)$")
 
 
@@ -63,8 +65,8 @@ class RangeHandler(SimpleHTTPRequestHandler):
 
 def main() -> None:
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8765
-    server = ThreadingHTTPServer(("127.0.0.1", port), partial(RangeHandler, directory=str(WORK)))
-    print(f"serving {WORK} at http://localhost:{port}/evidence/index.html")
+    server = ThreadingHTTPServer(("127.0.0.1", port), partial(RangeHandler, directory=str(ROOT)))
+    print(f"serving {ROOT}: http://localhost:{port}/work/evidence/index.html and /realtime/index.html")
     server.serve_forever()
 
 

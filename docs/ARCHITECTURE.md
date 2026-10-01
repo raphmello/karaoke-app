@@ -13,7 +13,7 @@ Na fase 1 tudo roda na rede local. Na fase 2 o mesmo PC fica ligado e é exposto
 1. Buscar músicas no YouTube.
 2. Baixar o áudio do vídeo.
 3. Remover a voz e gerar o instrumental.
-4. Mudar o tom, em semitons, para se adequar ao cantor.
+4. Mudar o tom em tempo real, de meio em meio tom, durante a música, para se adequar ao cantor. O instrumental é processado uma vez e guardado só no tom original.
 5. Obter a letra e sincronizá-la automaticamente, com destaque palavra por palavra.
 6. Adicionar músicas à fila. A mesma música pode entrar mais de uma vez.
 7. Entrar pelo QR Code para adicionar e remover músicas. Cada convidado só remove o que ele mesmo adicionou.
@@ -42,7 +42,7 @@ As escolhas priorizam um único PC com GPU, sem custo recorrente e sem reprocess
 | 5 | Banco | SQLite em modo WAL, via SQLAlchemy | Um arquivo, zero operação; SQLAlchemy deixa a porta aberta para Postgres |
 | 6 | Identidade da música | `video_id` do YouTube como chave primária de `songs` | Atende o requisito 8; cache e deduplicação vêm de graça |
 | 7 | Quando processar | Assim que a música entra na fila | A espera some, exceto na primeira música da noite |
-| 8 | Mudança de tom | Renderizada no servidor com Rubber Band, em cache por `video_id` e semitons. Motor R3; numa troca de tom no meio da música, uma versão R2 toca até a R3 ficar pronta | Qualidade melhor e player da TV simples; a R2 sai em ~12 s, a R3 leva de 1 a 4 min na CPU |
+| 8 | Mudança de tom | Em tempo real, no navegador da TV: Rubber Band compilada para WebAssembly, num AudioWorklet, com o motor R3. O servidor guarda só o tom original | Troca imediata e limpa, de meio em meio tom, sem processar nem guardar uma versão por tom; o R3 soou natural de ouvido e usa ~17% de um núcleo |
 | 9 | Sincronização | Com letra sincronizada, o LRC dá o tempo de cada linha, ajustado ao áudio, e o Whisper alinha as palavras dentro de cada linha, sobre a voz isolada | Nenhuma linha fica segundos fora do lugar; foi a única abordagem aprovada de ouvido no spike da fase 0 |
 | 10 | Execução | Docker Compose com GPU via WSL2 | Isola CUDA, ffmpeg, Rubber Band e Deno; um comando sobe tudo |
 | 11 | Acesso remoto | Cloudflare Tunnel como preferido, com decisão final só na fase 2 (adiada); Tailscale para administrar o PC | Convidados não instalam nada; downloads continuam saindo do IP de casa |
@@ -56,7 +56,7 @@ O backend inteiro é Python e o frontend é React com TypeScript. Os modelos de 
 | Camada | Tecnologia | Papel |
 | --- | --- | --- |
 | Frontend | React + Vite + TypeScript, Tailwind, TanStack Query | Telas `/tv`, `/m` (celular) e `/host` |
-| Áudio no navegador | Web Audio API | Toca instrumental e voz guia em sincronia na TV |
+| Áudio no navegador | Web Audio API | Toca instrumental e voz guia em sincronia na TV e passa a mistura pelo ajuste de tom |
 | QR Code | `qrcode` (npm) | Gerado na própria tela da TV |
 | API | FastAPI + Uvicorn, Pydantic v2 | REST e WebSocket |
 | Banco | SQLite (WAL) + SQLAlchemy 2 + Alembic | Músicas, fila, convidados e jobs |
@@ -66,7 +66,8 @@ O backend inteiro é Python e o frontend é React com TypeScript. Os modelos de 
 | Letra | [LRCLIB](https://lrclib.net) (gratuita, sem chave); `syncedlyrics` como reserva | Texto da letra e tempos por linha |
 | Alinhamento | [stable-ts](https://github.com/jianfch/stable-ts) `model.align()` com Whisper turbo (openai-whisper), sem VAD | Deslocamento e deriva do LRC (música inteira) e tempo de cada palavra (linha a linha); ~26 s por música, 3,9 GB de VRAM |
 | Transcrição de reserva | stable-ts com Whisper turbo | Só quando a letra não é encontrada e o dono da entrada autoriza |
-| Tom | [Rubber Band](https://breakfastquay.com/rubberband/) CLI, `-p <semitons>`: motor R3 (`--fine`); R2 (`--fast`) como versão provisória numa troca ao vivo | Pitch shift dos dois stems, em paralelo |
+| Idioma da letra | [lingua](https://github.com/pemistahl/lingua-py) (`lingua-language-detector`) | Detecta o idioma pelo texto da letra, para o alinhamento |
+| Tom | [rubberband-web](https://github.com/delude88/rubberband-web): [Rubber Band](https://breakfastquay.com/rubberband/) em WebAssembly, como AudioWorklet, motor R3 (`setHighQuality(true)`) | Muda o tom ao vivo na TV, de meio em meio tom, de −6 a +6; ~17% de um núcleo e ~77 ms de atraso |
 | Detecção de tom | essentia `KeyExtractor` | Mostra o tom original da música |
 | Proxy e arquivos | Caddy | Serve o frontend e `/media` com suporte a Range; faz proxy para a API |
 | Infra | Docker Compose, Docker Desktop com WSL2 e GPU NVIDIA | Sobe tudo com um comando |
@@ -80,17 +81,17 @@ O sistema tem três telas no navegador e quatro serviços no PC. A API nunca pro
 ```mermaid
 flowchart TB
     subgraph Telas["Telas no navegador"]
-        TV["TV · /tv<br/>Toca instrumental e voz guia<br/>Letra palavra por palavra"]
-        CEL["Celular · /m<br/>Busca, adiciona e remove<br/>Escolhe o tom"]
+        TV["TV · /tv<br/>Toca instrumental e voz guia<br/>Letra palavra por palavra<br/>Muda o tom ao vivo"]
+        CEL["Celular · /m<br/>Busca, adiciona e remove<br/>Ajusta o tom"]
         HOST["Host · /host<br/>Entra com PIN<br/>Controla fila e player"]
     end
     REDE{{"Fase 1: Wi-Fi de casa · Fase 2: Cloudflare Tunnel"}}
     subgraph PC["Seu PC · Docker Compose"]
         CADDY["Caddy · porta 8080<br/>Serve o frontend e /media; proxy de /api e /ws"]
         API["API · FastAPI<br/>REST e WebSocket para as telas<br/>Permissões, fila e salas<br/>No máximo um job por vídeo"]
-        WORKER["Worker · GPU NVIDIA<br/>gpu: download, separação, alinhamento<br/>cpu: Rubber Band renderiza os tons<br/>Um job por vídeo, por prioridade"]
-        DB[("SQLite · karaoke.db<br/>songs, song_events, jobs, queue_entries,<br/>rooms, guests, pitch_renders")]
-        VOL[("Volume karaoke-data<br/>Uma pasta por video_id<br/>Stems, Opus, tons e letra alinhada")]
+        WORKER["Worker · GPU NVIDIA<br/>download, separação, alinhamento<br/>Um job por vídeo, por prioridade"]
+        DB[("SQLite · karaoke.db<br/>songs, song_events, jobs, queue_entries,<br/>rooms, guests")]
+        VOL[("Volume karaoke-data<br/>Uma pasta por video_id<br/>Stems, Opus e letra alinhada")]
     end
     TV --> REDE
     CEL --> REDE
@@ -117,8 +118,8 @@ karaoke-app/
 │   ├── karaoke/
 │   │   ├── api/       rotas REST e WebSocket
 │   │   ├── core/      config, banco, modelos, permissões
-│   │   ├── pipeline/  download, separação, letra, alinhamento, tom
-│   │   ├── worker/    loop de jobs, pistas gpu e cpu
+│   │   ├── pipeline/  download, separação, letra, alinhamento, tom original
+│   │   ├── worker/    loop de jobs
 │   │   └── cli.py     process, rebuild-index
 │   └── tests/
 ├── web/               React + Vite (pnpm), rotas tv, m e host
@@ -137,24 +138,23 @@ Cada `video_id` é processado no máximo uma vez. Tudo o que o pipeline produz f
 | `pending` ou `processing` | Só cria a entrada; ela acompanha o job que já existe |
 | `awaiting_decision` | Cria a entrada, também aguardando decisão, e a pergunta "transcrever?" vai também para o novo dono |
 | `ready` | A entrada fica pronta na hora. Nada é baixado nem processado |
-| `ready`, com tom diferente de 0 ainda não renderizado | Cria um job `pitch` R3 para aquele `video_id` e tom, se ainda não houver um |
 | `removed` | A música é reativada. Com os arquivos completos, fica `ready` na hora, sem reprocessar; se nunca foi processada (transcrição recusada), a busca da letra roda de novo. O histórico continua em `song_events` |
 | `failed` | A entrada aparece com o erro; o host pode pedir nova tentativa |
 
 **Garantias contra reprocessamento**
 
 - `songs.video_id` é chave primária.
-- Um índice único parcial em `jobs (video_id, kind, semitones)` para status `pending` ou `running` impede dois jobs iguais ativos ao mesmo tempo.
+- Um índice único parcial em `jobs (video_id, kind)` para status `pending` ou `running` impede dois jobs iguais ativos ao mesmo tempo.
 - Cada etapa registra sua conclusão em `manifest.json`. Se o worker cair no meio, o job retoma da primeira etapa incompleta.
 - Reprocessar só acontece por ação explícita do host (por exemplo, trocar a letra) e só nas etapas pedidas.
 
-**Etapas do job `process`.** As etapas 1 e 2 são leves e rodam antes de baixar qualquer coisa. As demais usam a pista `gpu`, um job por vez. Como a GPU tem 8 GB de VRAM, só o modelo da etapa atual fica carregado.
+**Etapas do job `process`.** As etapas 1 e 2 são leves e rodam antes de baixar qualquer coisa. As demais rodam um job por vez. Como a GPU tem 8 GB de VRAM, só o modelo da etapa atual fica carregado.
 
 1. Metadados, sem baixar o vídeo: título, canal, duração, thumbnail e, quando existirem, `track` e `artist` vindos do yt-dlp.
 2. Letra: LRCLIB por artista, faixa e duração; depois busca livre com o título limpo; depois `syncedlyrics`. Vence o resultado com duração mais próxima da do vídeo. Sem letra, o job termina aqui e a música passa para `awaiting_decision` (veja abaixo).
 3. Download do melhor áudio disponível.
 4. Separação: audio-separator, com BS-RoFormer em sobreposição 2 e autocast, gera `instrumental.flac` e `vocals.flac`.
-5. Idioma: detectado pelo texto da letra; na transcrição, pelo próprio Whisper.
+5. Idioma: detectado pelo texto da letra, com lingua; na transcrição, pelo próprio Whisper.
 6. Alinhamento, com stable-ts e Whisper turbo, sem VAD, sobre `vocals.flac`. Com letra sincronizada, as linhas seguem o LRC e as palavras são alinhadas linha a linha (veja abaixo). Com letra só em texto, o texto inteiro é alinhado de uma vez. Na transcrição autorizada, o Whisper transcreve a voz e a letra fica marcada como "transcrita". Em todos os casos, grava início, fim e confiança de cada palavra.
 7. Tom original: essentia sobre o instrumental.
 8. Codificação para reprodução: Opus 160 kbps de cada stem.
@@ -197,37 +197,33 @@ Só um "sim" libera o download; um "não" de todos os donos deixa a música como
 
 Se a transcrição autorizada falhar, a música fica pronta como "sem letra" e o dono é avisado.
 
-**Job `pitch`** (pista `cpu`, dois jobs por vez): Rubber Band aplica `-p N` nos dois FLAC, com os dois stems em paralelo, e grava Opus em `pitch/<N>/<motor>/`. A faixa permitida é de −6 a +6 semitons.
+**Tom:** o servidor não processa nem guarda nenhuma versão em outro tom. A mudança de tom acontece ao vivo, na TV (veja o player).
 
-- O motor é o R3 (`--fine`), de melhor qualidade, que leva de 1 a 4 minutos na CPU por tom.
-- O job dispara quando a entrada chega com tom diferente de 0 ou quando alguém muda o tom.
-- Se a mudança for na música que está tocando, sai primeiro um job R2 (`--fast`, ~12 s) e, quando ele termina, o job R3. A versão R2 é apagada quando a R3 fica pronta.
-
-**Prioridade:** o worker pega primeiro o job cuja música está mais perto de tocar; empate vai por ordem de criação. As duas pistas são independentes, então uma troca de tom nunca espera uma separação terminar.
+**Prioridade:** o worker pega primeiro o job cuja música está mais perto de tocar; empate vai por ordem de criação.
 
 ## Modelo de dados
 
-Sete tabelas no SQLite. `songs` guarda cada vídeo uma única vez e nunca é apagada; `queue_entries` pode apontar várias vezes para o mesmo `video_id`, o que permite músicas repetidas na fila sem duplicar processamento. `song_events` guarda o histórico de cada música.
+Seis tabelas no SQLite. `songs` guarda cada vídeo uma única vez e nunca é apagada; `queue_entries` pode apontar várias vezes para o mesmo `video_id`, o que permite músicas repetidas na fila sem duplicar processamento. `song_events` guarda o histórico de cada música.
 
 | Tabela | Chave | Campos principais | Regras |
 | --- | --- | --- | --- |
 | `songs` | `video_id` (11 caracteres) | `title`, `artist`, `track`, `channel`, `duration_s`, `thumbnail_url`, `status`, `stage`, `original_key`, `language`, `lyrics_source`, `alignment_confidence`, `pipeline_version`, `error`, `created_at`, `ready_at`, `removed_at`, `removed_reason` | Uma linha por vídeo, nunca apagada. `status`: pending, awaiting_decision, processing, ready, failed ou removed. `lyrics_source`: lrclib, syncedlyrics, transcrita, manual ou nenhuma |
 | `song_events` | `id` | `video_id`, `kind`, `guest_id` (ou host), `details`, `created_at` | Histórico só de inclusão: criada, letra não encontrada, transcrição aceita ou recusada, pronta, removida, reativada |
-| `jobs` | `id` | `kind` (process, pitch), `video_id`, `semitones`, `options` (ex.: transcrever, motor do tom), `lane` (gpu, cpu), `status`, `stage`, `progress`, `attempts`, `error`, `created_at`, `started_at`, `finished_at` | Índice único parcial impede dois jobs iguais ativos |
-| `pitch_renders` | `video_id` + `semitones` + `engine` | `status`, `path`, `created_at`, `last_used_at` | Cache de tons; limpeza pelos menos usados. `engine`: r3, ou r2 provisório numa troca ao vivo |
+| `jobs` | `id` | `kind` (process), `video_id`, `options` (ex.: transcrever), `status`, `stage`, `progress`, `attempts`, `error`, `created_at`, `started_at`, `finished_at` | Índice único parcial impede dois jobs iguais ativos |
 | `rooms` | `id` | `code` (vai no QR), `name`, `host_pin_hash`, `is_active`, `created_at` | Uma sala ativa por vez na v1; o modelo já aceita várias |
 | `guests` | `id` (UUID) | `room_id`, `nickname`, `token_hash`, `created_at`, `last_seen_at` | O token fica no cookie do celular; o banco guarda só o hash |
-| `queue_entries` | `id` | `room_id`, `video_id`, `guest_id` (dono), `singer_name`, `semitones`, `position`, `status`, `removed_reason`, `created_at`, `started_at`, `ended_at` | `status`: queued, awaiting_decision, playing, done, skipped ou removed. `removed_reason`: dono, host ou transcrição recusada. Remoção é lógica |
+| `queue_entries` | `id` | `room_id`, `video_id`, `guest_id` (dono), `singer_name`, `semitones`, `position`, `status`, `removed_reason`, `created_at`, `started_at`, `ended_at` | `semitones`: tom atual em relação ao original, de −6 a +6. `status`: queued, awaiting_decision, playing, done, skipped ou removed. `removed_reason`: dono, host ou transcrição recusada. Remoção é lógica |
 
 O acervo é simplesmente `songs` com `status = ready`. A busca usa esse acervo para marcar os resultados que já tocam na hora. Músicas removidas ficam fora do acervo, mas continuam no banco.
 
 ## Armazenamento local
 
-Cada vídeo tem uma pasta própria, nomeada pelo `video_id`, com tudo o que é preciso para tocar sem reprocessar: áudio original, stems, versões de reprodução, tons renderizados e letra alinhada.
+Cada vídeo tem uma pasta própria, nomeada pelo `video_id`, com tudo o que é preciso para tocar sem reprocessar: áudio original, stems, versões de reprodução e letra alinhada.
 
 ```
 data/                         volume Docker "karaoke-data"
 ├── karaoke.db                SQLite (WAL)
+├── models/                   modelos baixados uma vez (BS-RoFormer, Whisper), ~5 GB
 └── media/
     └── <video_id>/
         ├── manifest.json     etapas concluídas, modelos e versões usados
@@ -239,9 +235,6 @@ data/                         volume Docker "karaoke-data"
         ├── play/
         │   ├── instrumental.opus
         │   └── vocals.opus
-        ├── pitch/
-        │   ├── +2/r3/  instrumental.opus, vocals.opus
-        │   └── -3/r2/  ...           provisório, apagado quando a R3 fica pronta
         └── lyrics/
             ├── source.json   letra original e de onde veio
             └── aligned.json  linhas → palavras com início, fim e confiança
@@ -262,11 +255,11 @@ Formato de `aligned.json` (tempos em segundos):
 - Escrita atômica: cada arquivo é gravado como `.tmp` e renomeado. A pasta só vale como pronta quando o `manifest.json` diz.
 - Volume Docker nomeado, no disco ext4 do WSL2, em vez de uma pasta do Windows. É mais rápido e diferencia maiúsculas de minúsculas: IDs do YouTube diferenciam, o NTFS não, e dois vídeos poderiam cair na mesma pasta.
 - O armazenamento é autossuficiente: um comando `rebuild-index` recria a tabela `songs` a partir dos manifests.
-- `pitch/` é cache descartável, limpo pelos menos usados quando passar de um limite configurável.
-- Música marcada como removida mantém todos os arquivos, para que a remoção possa ser desfeita sem reprocessar. Só o cache `pitch/` dela pode ser limpo.
+- Só o tom original é guardado; a mudança de tom acontece ao vivo, na TV.
+- Música marcada como removida mantém todos os arquivos, para que a remoção possa ser desfeita sem reprocessar.
 - Backup por script que compacta o volume.
 
-**Espaço estimado** para uma música de 4 minutos: cerca de 65 MB (original ~4 MB, dois FLAC ~25 MB cada, dois Opus ~5 MB cada), mais ~10 MB por tom renderizado. Mil músicas ocupam perto de 65 GB.
+**Espaço estimado** para uma música de 4 minutos: cerca de 65 MB (original ~4 MB, dois FLAC ~25 MB cada, dois Opus ~5 MB cada), em qualquer tom. Mil músicas ocupam perto de 65 GB, além de ~5 GB fixos dos modelos em `models/`.
 
 ## Salas, QR Code, convidados e permissões
 
@@ -326,10 +319,12 @@ A TV é dona da reprodução. Ela toca os dois stems com a Web Audio API, desenh
 
 **Tom**
 
-- O tom é escolhido no celular ao adicionar a música e pode mudar depois. A tela mostra "Original: Lá menor → Sol menor (−2)".
-- O Rubber Band muda o tom sem mudar a duração, então os tempos da letra continuam válidos em qualquer tom.
-- O render começa quando a entrada entra na fila. Se ainda não estiver pronto na hora de tocar, o intervalo mostra "preparando tom" e espera.
-- Mudança no meio da música: a TV continua tocando no tom atual. Quando chega `pitch.ready` da versão R2, em cerca de 12 s, ela carrega os novos stems e troca na mesma posição com um crossfade curto. Quando chega a R3, troca de novo do mesmo jeito.
+- O tom muda em tempo real, durante a música, de meio em meio tom, de −6 a +6 semitons. Nada é processado nem guardado no servidor: a TV passa o áudio por um AudioWorklet com a Rubber Band (rubberband-web), no motor R3.
+- Instrumental e voz guia são misturados antes e passam por um único ajuste de tom, o que corta o custo de CPU pela metade.
+- Controles de tom: botão **−½ tom**, botão **+½ tom** e botão **voltar ao tom original**. Eles ficam no celular do dono da entrada, na tela do host e na própria TV.
+- O tom atual fica sempre visível na TV e nos controles, em nome e em semitons: "Tom: Sol menor (−2) · original: Lá menor".
+- O tom pode já vir escolhido do celular, ao adicionar a música; é o tom em que ela começa.
+- A Rubber Band muda o tom sem mudar a duração, então os tempos da letra continuam válidos em qualquer tom. O atraso do próprio processamento (~77 ms com o R3) entra no `atraso` do relógio da letra.
 
 **Entre músicas**, a TV mostra o próximo cantor, a música, o tom e o QR Code, e a próxima começa sozinha depois de uma contagem curta. O host pode pausar ou pular. Se a próxima ainda estiver processando, a contagem espera ela ficar pronta; entradas aguardando a decisão de transcrever são puladas.
 
@@ -367,9 +362,8 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `song.progress` | Servidor → todos | `video_id`, etapa e percentual |
 | `song.lyrics_missing` | Servidor → donos e host | `video_id` e as entradas que aguardam a decisão de transcrever |
 | `song.ready` / `song.failed` | Servidor → todos | `video_id` e erro, quando houver |
-| `pitch.ready` | Servidor → TV | `video_id`, semitons e motor (r2 ou r3) |
-| `player.command` | Servidor → TV | play, pause, skip, voz guia, atraso |
-| `player.state` | TV → servidor → todos | Entrada atual, posição e pausa, a cada segundo |
+| `player.command` | Servidor → TV | play, pause, skip, voz guia, atraso e tom (−½, +½ ou original) |
+| `player.state` | TV → servidor → todos | Entrada atual, posição, pausa e tom atual, a cada segundo |
 
 Ao cair a conexão, o cliente reconecta com espera crescente e recebe um `queue.snapshot` novo.
 
@@ -381,7 +375,7 @@ Tudo roda em Docker Compose no seu PC, e só o Caddy fica exposto. O acesso remo
 | --- | --- | --- | --- |
 | `caddy` | `caddy:2` | Porta 8080 do PC | Serve o frontend e `/media`; faz proxy de `/api` e `/ws` |
 | `api` | `python:3.12-slim` | Interna | Sem PyTorch, imagem leve |
-| `worker` | Imagem PyTorch com CUDA, ffmpeg, `rubberband-cli` e Deno | Nenhuma | `gpus: all`; pistas `gpu` e `cpu` |
+| `worker` | Imagem PyTorch com CUDA, ffmpeg e Deno | Nenhuma | `gpus: all`; um job por vez |
 | `cloudflared` | `cloudflare/cloudflared` | Nenhuma | Só no perfil `remote` |
 
 O volume `karaoke-data` é montado na API e no worker com escrita, e no Caddy só para leitura de `media/`.
@@ -390,7 +384,7 @@ O volume `karaoke-data` é montado na API e no worker com escrita, e no Caddy s�
 
 - No Windows: driver NVIDIA atualizado, Docker Desktop com backend WSL2 (a GPU chega aos containers por ele) e regra no Firewall liberando a porta 8080 na rede privada.
 - Reserve o IP do PC no roteador, para o QR Code não mudar.
-- `.env` com `HOST_PIN`, `PUBLIC_BASE_URL=http://<IP do PC>:8080`, modelos escolhidos e limite do cache de tons.
+- `.env` com `HOST_PIN`, `PUBLIC_BASE_URL=http://<IP do PC>:8080`, e modelos escolhidos.
 - `docker compose up -d` sobe tudo; a TV abre `http://<IP do PC>:8080/tv`.
 - Desenvolvimento: `pnpm dev` fora do Docker, com proxy para a API, que roda com recarga automática.
 - Sem HTTPS na rede local o celular não instala o app como PWA, mas o site funciona normalmente.
@@ -418,7 +412,9 @@ O maior risco é o YouTube quebrar o yt-dlp. Como tudo que já foi processado fi
 | Alinhamento falha em trechos lentos, gritos, backing vocals ou linhas muito curtas (~6% das linhas no spike, alinhando a música inteira) | Linhas e palavras fora de hora | Com letra sincronizada, as linhas seguem o LRC e as palavras são alinhadas linha a linha; sem ela, linhas com confiança baixa acendem inteiras |
 | VRAM insuficiente para separação e Whisper juntos | Erro de memória na GPU | A GPU tem 8 GB: o worker carrega um modelo por vez e libera a VRAM entre a separação e o alinhamento; modelos escolhidos pelo spike |
 | Atraso de caixa Bluetooth | Letra adiantada em relação ao som | Ajuste manual de atraso na TV, salvo no navegador |
-| Disco enche (~65 MB por música) | Falha ao gravar | Limite para o cache de tons e aviso no painel do host. Removidas continuam ocupando espaço, porque os arquivos são mantidos |
+| Disco enche (~65 MB por música) | Falha ao gravar | Aviso no painel do host. Removidas continuam ocupando espaço, porque os arquivos são mantidos |
+| Tom em tempo real pesa na CPU do PC da TV | Áudio picotando | Validado no spike: o R3 usa ~17% de um núcleo de um i5-12400F, e uma só mistura passa pelo ajuste. O PC ligado à TV precisa de CPU de desktop; numa máquina fraca, o R2 usa metade disso |
+| Licença GPL da Rubber Band, entregue ao navegador | Restrição se o app for distribuído | Uso privado não é afetado; distribuir o app exigiria licença compatível ou a licença comercial da Rubber Band |
 | PC desligado ou dormindo | App fora do ar na fase 2 | Plano de energia e reinicialização automática dos containers |
 | Termos do YouTube e direitos das letras | Risco legal ao abrir o acesso | Uso privado: sala com código, `/media` protegido, nada indexado |
 
@@ -429,14 +425,14 @@ Sete fases, cada uma com um critério de pronto verificável. A fase 0 vem antes
 0. **Spike de viabilidade:** concluída em 1º de outubro de 2026 ([resultados](../spikes/phase0/RESULTS.md)).
     - Separação: BS-RoFormer com sobreposição 2 e autocast, ~66 s por música.
     - Letra: LRC como esqueleto das linhas e Whisper turbo para as palavras, linha a linha.
-    - Tom: Rubber Band R3, com R2 provisório na troca ao vivo.
+    - Tom: Rubber Band R3 em arquivo, depois substituído pelo tom em tempo real no navegador (decisão 8).
     - Tempo total: ~111 s por música, somando as etapas medidas, cerca de 39% da duração da música.
 1. **Pipeline em linha de comando:** `karaoke process <video_id>` gera a pasta completa.
     - Pronto quando: a segunda execução termina sem usar a GPU, e uma execução interrompida retoma de onde parou.
-2. **API, banco e worker:** tabelas, jobs com pistas e prioridade, busca, rotas de música e Compose com GPU.
+2. **API, banco e worker:** tabelas, jobs com prioridade, busca, rotas de música e Compose com GPU.
     - Pronto quando: adicionar o mesmo vídeo cinco vezes ao mesmo tempo gera um único job.
-3. **Player da TV:** dois stems na Web Audio API, letra palavra por palavra, voz guia, atraso e tom.
-    - Pronto quando: uma música inteira toca com a letra em sincronia, em dois tons diferentes.
+3. **Player da TV:** dois stems na Web Audio API, letra palavra por palavra, voz guia, atraso e tom em tempo real (−½, +½ e voltar ao original, com o tom atual visível).
+    - Pronto quando: uma música inteira toca com a letra em sincronia, e o tom muda ao vivo, de meio em meio tom, sem cortar o áudio nem dessincronizar a letra.
 4. **Fila, sala, QR e permissões:** tela do celular, convidados, WebSocket e testes da matriz.
     - Pronto quando: dois celulares usam a fila, e um não consegue remover a música do outro. Uma música sem letra pergunta ao dono, e um "não" tira a entrada da fila sem baixar nada.
 5. **Acabamento:** acervo, troca de letra e reprocessamento pelo host, painel de jobs e de disco, tela entre músicas.

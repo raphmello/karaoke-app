@@ -22,7 +22,7 @@ O critério de pronto da fase 0 ("modelos escolhidos e tempo total por música m
 
 ## Mudanças na arquitetura
 
-As quatro propostas abaixo foram aprovadas e aplicadas ao `docs/ARCHITECTURE.md` em 1º de outubro de 2026. Na proposta 4, a escolhida foi tocar primeiro a versão R2 e trocar pela R3. Depois da audição, a proposta 3 foi substituída por uma abordagem mais forte, também aprovada e aplicada: o LRC como esqueleto de todas as linhas e o stable-ts por linha (veja [Sincronização](#sincronização-lrc-como-esqueleto-spike-0b)). Junto com ela entrou a exibição com antecedência de 1 s e a contagem regressiva.
+As quatro propostas abaixo foram aprovadas e aplicadas ao `docs/ARCHITECTURE.md` em 1º de outubro de 2026. Na proposta 4, a escolhida foi tocar primeiro a versão R2 e trocar pela R3. Depois da audição, a proposta 3 foi substituída por uma abordagem mais forte, também aprovada e aplicada: o LRC como esqueleto de todas as linhas e o stable-ts por linha (veja [Sincronização](#sincronização-lrc-como-esqueleto-spike-0b)). Junto com ela entrou a exibição com antecedência de 1 s e a contagem regressiva. A proposta 4 também foi substituída: o tom passou a mudar em tempo real no navegador, com o instrumental guardado só no tom original (veja [Tom em tempo real](#tom-em-tempo-real-spike-0c)).
 
 1. **Fixar a configuração da separação.** Na tabela de stack, trocar "BS-RoFormer; Demucs `htdemucs_ft` como alternativa" por "BS-RoFormer com sobreposição 2 e autocast; MelBand RoFormer como alternativa". A configuração padrão do modelo levaria 233 s numa música de 5 minutos, contra 70 s.
 2. **Fixar o modelo de alinhamento.** Na tabela de stack: "stable-ts com Whisper turbo, sem VAD". faster-whisper sai do stack.
@@ -89,6 +89,32 @@ Escolha: **LRC como esqueleto + stable-ts (Whisper turbo) por linha.**
 - Só a exibição nova não resolve: a variante atual, com ela, continuou "ruim" em "Tempo Perdido" e "Bohemian Rhapsody". O que resolve é o esqueleto do LRC.
 - O custo é ~19 s a mais de alinhamento por música, o que leva o total de ~92 s para ~111 s (cerca de 39% da duração da música).
 - O CTC foi 10× mais rápido, mas ficou "aceitável" em 2 músicas.
+
+## Tom em tempo real (spike 0c)
+
+Depois da fase 1, a arquitetura passou a exigir tom em tempo real: o instrumental é processado uma vez, guardado só no tom original, e o tom muda ao vivo, de meio em meio tom (decisão 8). O spike testa isso no navegador com o [rubberband-web](https://github.com/delude88/rubberband-web) 0.2.1. Ele é a Rubber Band compilada para WebAssembly, como AudioWorklet, com licença GPL-2.0-or-later. Os dois motores estão disponíveis: R2 por padrão e R3 com "alta qualidade".
+
+A página `realtime/index.html` toca o instrumental e a voz guia, misturados e passados por um único ajuste de tom. Ela tem os botões **−½ tom**, **+½ tom** e **Tom original**, e mostra o tom atual em nome ("Tom: Fá♯ maior (+1 tom) · original: Mi maior"). O tom original de cada música vem do essentia (`scripts/keys.py`), como no pipeline do app.
+
+**CPU e atraso.** ~60 s de "Evidências" (instrumental e voz guia) a +2 tons, processados offline no navegador do PC de destino (i5-12400F), descontando o carregamento do WebAssembly:
+
+| Motor | ~60 s processados em | Uso de um núcleo tocando ao vivo | Atraso do ajuste |
+| --- | --- | --- | --- |
+| R2 | 5,0 s | 8,5% | 35 ms |
+| R3 | 10,2 s | 17,2% | 77 ms |
+
+Os dois rodam em tempo real com folga numa CPU de desktop. O atraso é pequeno e fixo, e entra no `atraso` do relógio da letra.
+
+**Funcionamento** (teste com som zerado): os botões mudam meio tom na hora; os limites de ±3 tons desativam o botão correspondente; "Tom original" volta a 0; a troca de motor durante a música funciona; o console não mostrou erros.
+
+**Audição:**
+- R2: "aceitável";
+- R3: "natural";
+- troca de tom: "imediata e limpa".
+
+Uma segunda medição do R2 deu 4,8 s, confirmando a primeira.
+
+Escolha: **R3 em tempo real**, registrada na decisão 8 da arquitetura.
 
 ## Página de evidências
 

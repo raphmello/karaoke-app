@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spike · tom em tempo real</title>
+<style>
+  :root { --bg:#111418; --card:#1a1f26; --ink:#e8eaed; --muted:#9aa0a6; --line:#2c333d; --accent:#f5c518; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width:900px; margin:0 auto; padding:24px 16px 80px; }
+  h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:17px; margin:0 0 12px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin:20px 0; }
+  .muted { color:var(--muted); font-size:13px; }
+  .row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:10px 0; }
+  button, select { background:#242b35; color:var(--ink); border:1px solid var(--line); border-radius:6px; padding:8px 12px; font:inherit; cursor:pointer; }
+  button.on { border-color:var(--accent); color:var(--accent); }
+  button.big { font-size:20px; padding:12px 22px; min-width:120px; }
+  button:disabled { opacity:.4; cursor:default; }
+  input[type=range] { flex:1; }
+  .tv { background:#0b0d10; border-radius:10px; padding:20px; text-align:center; }
+  .tv .now { font-size:30px; font-weight:700; }
+  .tv .now b { color:var(--accent); }
+  .tv .orig { color:var(--muted); margin-top:4px; }
+  table { border-collapse:collapse; width:100%; font-size:14px; }
+  td, th { border-bottom:1px solid var(--line); padding:6px 8px; text-align:left; }
+  textarea { width:100%; height:120px; background:#0b0d10; color:var(--ink); border:1px solid var(--line); border-radius:6px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Spike · tom em tempo real</h1>
+  <p class="muted">O instrumental e a voz guia, no tom original, passam por um único ajuste de tom (Rubber Band em WebAssembly, rubberband-web). Cada clique muda meio tom na hora, sem processar nem guardar nada no servidor.</p>
+
+  <div class="card">
+    <h2>Música</h2>
+    <div class="row">
+      <select id="song"></select>
+      <span class="muted" id="loadState"></span>
+    </div>
+    <div class="row">
+      <button id="play" disabled>▶ Tocar</button>
+      <input id="seek" type="range" min="0" max="1000" value="0" disabled>
+      <span class="muted" id="time">0:00</span>
+    </div>
+    <div class="row">
+      <span class="muted">Voz guia</span>
+      <input id="guide" type="range" min="0" max="100" value="0" style="max-width:200px">
+      <span class="muted">Motor</span>
+      <button id="r2" class="on">R2 (rápido)</button>
+      <button id="r3">R3 (alta qualidade)</button>
+    </div>
+  </div>
+
+  <div class="card tv">
+    <div class="now" id="now">Tom: —</div>
+    <div class="orig" id="orig"></div>
+    <div class="row" style="justify-content:center; margin-top:16px">
+      <button class="big" id="down" disabled>−½ tom</button>
+      <button class="big" id="reset" disabled>Tom original</button>
+      <button class="big" id="up" disabled>+½ tom</button>
+    </div>
+    <div class="muted">Faixa permitida: de −3 a +3 tons (−6 a +6 semitons).</div>
+  </div>
+
+  <div class="card">
+    <h2>Comparar com o render R3 em arquivo (spike anterior)</h2>
+    <p class="muted">Só instrumental. Para comparar com o tempo real, deixe a voz guia em 0 e ajuste ±2 tons (±4 semitons) acima.</p>
+    <div class="row"><span class="muted" style="width:60px">−2 tons</span><audio id="refDown" controls preload="none"></audio></div>
+    <div class="row"><span class="muted" style="width:60px">+2 tons</span><audio id="refUp" controls preload="none"></audio></div>
+  </div>
+
+  <div class="card">
+    <h2>Medição de CPU e atraso</h2>
+    <p class="muted">Processa 60 s da música (instrumental + voz guia) a +2 tons sem tocar, o mais rápido possível. O tempo gasto dividido por 60 s é a fração de um núcleo da CPU que o ajuste ocupa tocando ao vivo. O atraso é medido com um clique de teste.</p>
+    <div class="row"><button id="bench" disabled>Medir R2 e R3</button><span class="muted" id="benchState"></span></div>
+    <table id="benchTable"><tr><th>Motor</th><th>~60 s de áudio processados em</th><th>Fração de um núcleo</th><th>Atraso do ajuste</th></tr></table>
+  </div>
+
+  <div class="card">
+    <h2>Notas</h2>
+    <div class="row">
+      <span class="muted">R2 soa</span><select data-note="r2"><option>—</option><option>natural</option><option>aceitável</option><option>artificial</option></select>
+      <span class="muted">R3 soa</span><select data-note="r3"><option>—</option><option>natural</option><option>aceitável</option><option>artificial</option></select>
+      <span class="muted">Troca de tom</span><select data-note="troca"><option>—</option><option>imediata e limpa</option><option>com estalo</option><option>lenta</option></select>
+    </div>
+    <button id="export">Exportar notas e medições</button>
+    <textarea id="out" readonly></textarea>
+  </div>
+</main>
+<script>
+const WORKLET = "../work/vendor/rubberband-processor.js";
+const NOTES = ["Dó", "Dó♯", "Ré", "Mi♭", "Mi", "Fá", "Fá♯", "Sol", "Lá♭", "Lá", "Si♭", "Si"];
+const PITCH_CLASS = { C: 0, "C#": 1, Db: 1, D: 2, "D#": 3, Eb: 3, E: 4, F: 5, "F#": 6, Gb: 6, G: 7, "G#": 8, Ab: 8, A: 9, "A#": 10, Bb: 10, B: 11 };
+const MIN = -6, MAX = 6;
+const WARMUP = 0.5;  // seconds of offline render before timing starts
+const $ = id => document.getElementById(id);
+const store = { get: k => { try { return localStorage.getItem(k); } catch { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+
+let songs = [], keys = {}, ctx = null, buffers = null, nodes = null, sources = [];
+let playing = false, offset = 0, startedAt = 0, semitones = 0, engine = "r2", bench = [];
+
+const keyName = (key, shift) => `${NOTES[(PITCH_CLASS[key.key] + shift + 120) % 12]} ${key.scale === "major" ? "maior" : "menor"}`;
+function tons(n) {  // semitones as tons, the way people talk: ½ tom, 1 tom, 1½ tom, 2 tons
+  const whole = Math.floor(Math.abs(n) / 2), half = Math.abs(n) % 2 ? "½" : "";
+  const text = `${whole || ""}${half}` || "0";
+  return `${n < 0 ? "−" : "+"}${text} ${Math.abs(n) > 3 ? "tons" : "tom"}`;
+}
+function showKey() {
+  const key = keys[$("song").value];
+  if (!key) { $("now").textContent = "Tom: —"; $("orig").textContent = ""; return; }
+  $("now").innerHTML = semitones === 0
+    ? `Tom: <b>${keyName(key, 0)}</b> (original)`
+    : `Tom: <b>${keyName(key, semitones)}</b> (${tons(semitones)})`;
+  $("orig").textContent = semitones === 0 ? "" : `original: ${keyName(key, 0)}`;
+  $("down").disabled = !buffers || semitones <= MIN;
+  $("up").disabled = !buffers || semitones >= MAX;
+  $("reset").disabled = !buffers || semitones === 0;
+}
+const fmt = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+
+function makeShifter(context) {
+  const node = new AudioWorkletNode(context, "rubberband-processor", { outputChannelCount: [2] });
+  node.port.postMessage(JSON.stringify(["quality", engine === "r3"]));
+  node.port.postMessage(JSON.stringify(["pitch", 2 ** (semitones / 12)]));
+  return node;
+}
+
+async function ensureContext() {
+  if (ctx) return;
+  ctx = new AudioContext();
+  await ctx.audioWorklet.addModule(WORKLET);
+}
+
+function buildGraph() {
+  if (nodes) { nodes.shifter.disconnect(); nodes.mix.disconnect(); }
+  const mix = ctx.createGain();
+  const inst = ctx.createGain();
+  const voice = ctx.createGain();
+  voice.gain.value = $("guide").value / 100;
+  inst.connect(mix); voice.connect(mix);
+  const shifter = makeShifter(ctx);
+  mix.connect(shifter).connect(ctx.destination);
+  nodes = { mix, inst, voice, shifter };
+}
+
+function stopSources() { sources.forEach(s => { try { s.stop(); } catch {} }); sources = []; }
+function startSources(at) {
+  stopSources();
+  for (const [name, gain] of [["inst", nodes.inst], ["voice", nodes.voice]]) {
+    const src = ctx.createBufferSource(); src.buffer = buffers[name]; src.connect(gain); src.start(0, at); sources.push(src);
+  }
+  startedAt = ctx.currentTime - at;
+}
+const position = () => playing ? ctx.currentTime - startedAt : offset;
+
+async function loadSong() {
+  stopSources(); playing = false; $("play").textContent = "▶ Tocar"; offset = 0; buffers = null; semitones = 0;
+  ["play", "seek", "bench"].forEach(id => $(id).disabled = true);
+  showKey();
+  const slug = $("song").value, base = `../work/songs/${slug}/play`;
+  $("refDown").src = `${base}/inst_pitch-4.opus`; $("refUp").src = `${base}/inst_pitch+4.opus`;
+  $("loadState").textContent = "carregando…";
+  await ensureContext();
+  const decode = async url => ctx.decodeAudioData(await (await fetch(url)).arrayBuffer());
+  const [inst, voice] = await Promise.all([decode(`${base}/inst_bs_roformer_fast.opus`), decode(`${base}/vocals_bs_roformer_fast.opus`)]);
+  buffers = { inst, voice };
+  buildGraph();
+  $("loadState").textContent = `${fmt(inst.duration)} · ${inst.sampleRate} Hz`;
+  ["play", "seek", "bench"].forEach(id => $(id).disabled = false);
+  showKey();
+}
+
+function setSemitones(n) {
+  semitones = Math.max(MIN, Math.min(MAX, n));
+  nodes.shifter.port.postMessage(JSON.stringify(["pitch", 2 ** (semitones / 12)]));
+  showKey();
+}
+
+function setEngine(name) {
+  engine = name;
+  $("r2").classList.toggle("on", name === "r2"); $("r3").classList.toggle("on", name === "r3");
+  if (!buffers) return;
+  const at = position();
+  buildGraph();
+  if (playing) startSources(at);
+}
+
+async function measure(engineName) {
+  const seconds = 60, sr = buffers.inst.sampleRate, from = Math.min(60, Math.max(0, buffers.inst.duration - seconds - 1));
+  const render = async (fill) => {
+    const off = new OfflineAudioContext(2, seconds * sr, sr);
+    await off.audioWorklet.addModule(WORKLET);
+    const node = new AudioWorkletNode(off, "rubberband-processor", { outputChannelCount: [2] });
+    node.port.postMessage(JSON.stringify(["quality", engineName === "r3"]));
+    node.port.postMessage(JSON.stringify(["pitch", 2 ** (4 / 12)]));
+    fill(off, node);
+    node.connect(off.destination);
+    // The worklet loads its WebAssembly asynchronously, once audio starts flowing. Pause the render at WARMUP,
+    // give it time to load, and time only the rest: what is left is pure processing.
+    let t0 = 0;
+    off.suspend(WARMUP).then(async () => { await new Promise(r => setTimeout(r, 1500)); t0 = performance.now(); off.resume(); });
+    const out = await off.startRendering();
+    return { out, wall: (performance.now() - t0) / 1000 };
+  };
+  // CPU: the real mixture
+  const music = await render((off, node) => {
+    const mix = off.createGain();
+    for (const [buffer, gain] of [[buffers.inst, 1], [buffers.voice, 0.3]]) {
+      const src = off.createBufferSource(), g = off.createGain();
+      src.buffer = buffer; g.gain.value = gain; src.connect(g).connect(mix); src.start(0, from);
+    }
+    mix.connect(node);
+  });
+  // delay: one click at 2.0 s; where its echo comes out is the delay the shifter adds
+  const clickAt = 2.0;
+  const click = await render((off, node) => {
+    const buffer = off.createBuffer(2, seconds * sr, sr);
+    for (let c = 0; c < 2; c++) { const d = buffer.getChannelData(c); for (let i = 0; i < 64; i++) d[Math.round(clickAt * sr) + i] = 1 - i / 64; }
+    const src = off.createBufferSource(); src.buffer = buffer; src.connect(node); src.start(0);
+  });
+  const ch = click.out.getChannelData(0);
+  let peak = 0, at = 0;
+  for (let i = Math.round(0.5 * sr); i < Math.round(8 * sr); i++) { const v = Math.abs(ch[i]); if (v > peak) { peak = v; at = i; } }
+  let energy = 0;
+  for (const v of music.out.getChannelData(0)) energy += v * v;
+  const rms = Math.sqrt(energy / music.out.length);
+  const processed = seconds - WARMUP;
+  return {
+    engine: engineName, seconds: processed, wall: music.wall, share: music.wall / processed,
+    delay_ms: peak > 0.01 ? Math.round((at / sr - clickAt) * 1000) : null, output_rms: Number(rms.toFixed(4)),
+  };
+}
+
+async function runBench() {
+  if (playing) togglePlay();
+  $("bench").disabled = true;
+  for (const e of ["r2", "r3"]) {
+    $("benchState").textContent = `medindo ${e.toUpperCase()}…`;
+    const r = await measure(e);
+    bench.push(r);
+    const row = $("benchTable").insertRow();
+    row.innerHTML = `<td>${e.toUpperCase()}</td><td>${r.wall.toFixed(2)} s</td><td>${(r.share * 100).toFixed(1)}%</td>`
+      + `<td>${r.delay_ms === null ? "sem saída" : r.delay_ms + " ms"}</td>`;
+  }
+  $("benchState").textContent = "pronto";
+  $("bench").disabled = false;
+}
+
+function togglePlay() {
+  if (!buffers) return;
+  if (playing) { offset = position(); stopSources(); playing = false; $("play").textContent = "▶ Tocar"; }
+  else { ctx.resume(); startSources(offset); playing = true; $("play").textContent = "❚❚ Pausar"; }
+}
+
+function tick() {
+  if (buffers) {
+    const t = position(), d = buffers.inst.duration;
+    if (playing && t >= d) togglePlay();
+    $("seek").value = Math.min(1000, t / d * 1000); $("time").textContent = fmt(t);
+  }
+  requestAnimationFrame(tick);
+}
+
+async function init() {
+  songs = await (await fetch("../songs.json")).json();
+  try { keys = await (await fetch("../work/results/keys.json")).json(); } catch { keys = {}; }
+  for (const s of songs) { const o = document.createElement("option"); o.value = s.slug; o.textContent = `${s.artist} — ${s.title}`; $("song").append(o); }
+  $("song").onchange = loadSong;
+  $("play").onclick = async () => { await ensureContext(); togglePlay(); };
+  $("seek").oninput = () => { const t = $("seek").value / 1000 * buffers.inst.duration; offset = t; if (playing) startSources(t); };
+  $("guide").oninput = () => { if (nodes) nodes.voice.gain.value = $("guide").value / 100; };
+  $("down").onclick = () => setSemitones(semitones - 1);
+  $("up").onclick = () => setSemitones(semitones + 1);
+  $("reset").onclick = () => setSemitones(0);
+  $("r2").onclick = () => setEngine("r2");
+  $("r3").onclick = () => setEngine("r3");
+  $("bench").onclick = runBench;
+  document.querySelectorAll("[data-note]").forEach(s => { const k = `rt:${s.dataset.note}`; s.value = store.get(k) || "—"; s.onchange = () => store.set(k, s.value); });
+  $("export").onclick = () => {
+    const notes = {}; document.querySelectorAll("[data-note]").forEach(s => notes[s.dataset.note] = s.value);
+    $("out").value = JSON.stringify({ notes, bench }, null, 1);
+  };
+  requestAnimationFrame(tick);
+  await loadSong();
+}
+init();
+</script>
+</body>
+</html>
