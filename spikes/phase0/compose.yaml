@@ -1,0 +1,29 @@
+name: karaoke-spike
+
+services:
+  spike:
+    build: .
+    image: karaoke-spike:phase0
+    working_dir: /spike/scripts
+    volumes:
+      - ./:/spike:ro
+      - ./work:/work
+      - spike-models:/models
+    environment:
+      SPIKE_ROOT: /spike
+      SPIKE_WORK: /work
+      SPIKE_MODELS: /models
+      HF_HOME: /models/hf
+      XDG_CACHE_HOME: /models/cache
+      TORCH_HOME: /models/torch
+      PYTHONUNBUFFERED: "1"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  spike-models:

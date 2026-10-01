@@ -1,0 +1,12 @@
+# torch and torchaudio are installed first from the CUDA index (see Dockerfile).
+audio-separator[gpu]
+audioread  # imported by audio-separator but not declared as its dependency
+yt-dlp[default]
+stable-ts
+openai-whisper
+faster-whisper
+nvidia-ml-py
+musdb
+soundfile
+numpy
+requests

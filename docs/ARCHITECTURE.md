@@ -42,8 +42,8 @@ As escolhas priorizam um único PC com GPU, sem custo recorrente e sem reprocess
 | 5 | Banco | SQLite em modo WAL, via SQLAlchemy | Um arquivo, zero operação; SQLAlchemy deixa a porta aberta para Postgres |
 | 6 | Identidade da música | `video_id` do YouTube como chave primária de `songs` | Atende o requisito 8; cache e deduplicação vêm de graça |
 | 7 | Quando processar | Assim que a música entra na fila | A espera some, exceto na primeira música da noite |
-| 8 | Mudança de tom | Renderizada no servidor com Rubber Band, em cache por `video_id` e semitons | Qualidade melhor e player da TV simples |
-| 9 | Sincronização | Alinhamento forçado da letra sobre a voz isolada | Tempo por palavra, independente da versão do vídeo |
+| 8 | Mudança de tom | Renderizada no servidor com Rubber Band, em cache por `video_id` e semitons. Motor R3; numa troca de tom no meio da música, uma versão R2 toca até a R3 ficar pronta | Qualidade melhor e player da TV simples; a R2 sai em ~12 s, a R3 leva de 1 a 4 min na CPU |
+| 9 | Sincronização | Com letra sincronizada, o LRC dá o tempo de cada linha, ajustado ao áudio, e o Whisper alinha as palavras dentro de cada linha, sobre a voz isolada | Nenhuma linha fica segundos fora do lugar; foi a única abordagem aprovada de ouvido no spike da fase 0 |
 | 10 | Execução | Docker Compose com GPU via WSL2 | Isola CUDA, ffmpeg, Rubber Band e Deno; um comando sobe tudo |
 | 11 | Acesso remoto | Cloudflare Tunnel como preferido, com decisão final só na fase 2 (adiada); Tailscale para administrar o PC | Convidados não instalam nada; downloads continuam saindo do IP de casa |
 | 12 | Letra ausente | Perguntar ao dono antes de baixar qualquer coisa | Nada pesado roda para uma música que ninguém quer transcrever |
@@ -51,7 +51,7 @@ As escolhas priorizam um único PC com GPU, sem custo recorrente e sem reprocess
 
 ## Stack tecnológica
 
-O backend inteiro é Python e o frontend é React com TypeScript. Os modelos exatos de separação e alinhamento serão confirmados no spike da fase 0, medindo qualidade, tempo e VRAM no seu PC, que tem 8 GB de VRAM.
+O backend inteiro é Python e o frontend é React com TypeScript. Os modelos de separação e alinhamento e suas configurações foram escolhidos no [spike da fase 0](../spikes/phase0/RESULTS.md), medindo qualidade, tempo e VRAM no seu PC, que tem 8 GB de VRAM.
 
 | Camada | Tecnologia | Papel |
 | --- | --- | --- |
@@ -62,11 +62,11 @@ O backend inteiro é Python e o frontend é React com TypeScript. Os modelos exa
 | Banco | SQLite (WAL) + SQLAlchemy 2 + Alembic | Músicas, fila, convidados e jobs |
 | Worker | Python, mesmo pacote da API com outro ponto de entrada | Executa o pipeline |
 | Busca e download | [yt-dlp](https://github.com/yt-dlp/yt-dlp) com `yt-dlp[default]`, Deno 2.3+ e ffmpeg | O yt-dlp exige um runtime JavaScript para o YouTube; Deno é o padrão ([EJS](https://github.com/yt-dlp/yt-dlp/wiki/EJS)) |
-| Separação de voz | [audio-separator](https://github.com/nomadkaraoke/python-audio-separator) `[gpu]` com BS-RoFormer; Demucs `htdemucs_ft` como alternativa | Gera instrumental e voz em FLAC |
+| Separação de voz | [audio-separator](https://github.com/nomadkaraoke/python-audio-separator) `[gpu]` com BS-RoFormer (`model_bs_roformer_ep_317_sdr_12.9755`), sobreposição 2 e autocast; MelBand RoFormer como alternativa | Gera instrumental e voz em FLAC; ~66 s por música, 2,5 GB de VRAM |
 | Letra | [LRCLIB](https://lrclib.net) (gratuita, sem chave); `syncedlyrics` como reserva | Texto da letra e tempos por linha |
-| Alinhamento | [stable-ts](https://github.com/jianfch/stable-ts) `model.align()` com Whisper | Tempo de cada palavra |
-| Transcrição de reserva | stable-ts com Whisper | Só quando a letra não é encontrada e o dono da entrada autoriza |
-| Tom | [Rubber Band](https://breakfastquay.com/rubberband/) CLI, motor R3 (`--fine`), `-p <semitons>` | Pitch shift dos dois stems |
+| Alinhamento | [stable-ts](https://github.com/jianfch/stable-ts) `model.align()` com Whisper turbo (openai-whisper), sem VAD | Deslocamento e deriva do LRC (música inteira) e tempo de cada palavra (linha a linha); ~26 s por música, 3,9 GB de VRAM |
+| Transcrição de reserva | stable-ts com Whisper turbo | Só quando a letra não é encontrada e o dono da entrada autoriza |
+| Tom | [Rubber Band](https://breakfastquay.com/rubberband/) CLI, `-p <semitons>`: motor R3 (`--fine`); R2 (`--fast`) como versão provisória numa troca ao vivo | Pitch shift dos dois stems, em paralelo |
 | Detecção de tom | essentia `KeyExtractor` | Mostra o tom original da música |
 | Proxy e arquivos | Caddy | Serve o frontend e `/media` com suporte a Range; faz proxy para a API |
 | Infra | Docker Compose, Docker Desktop com WSL2 e GPU NVIDIA | Sobe tudo com um comando |
@@ -137,7 +137,7 @@ Cada `video_id` é processado no máximo uma vez. Tudo o que o pipeline produz f
 | `pending` ou `processing` | Só cria a entrada; ela acompanha o job que já existe |
 | `awaiting_decision` | Cria a entrada, também aguardando decisão, e a pergunta "transcrever?" vai também para o novo dono |
 | `ready` | A entrada fica pronta na hora. Nada é baixado nem processado |
-| `ready`, com tom diferente de 0 ainda não renderizado | Cria um job `pitch` para aquele `video_id` e tom, se ainda não houver um |
+| `ready`, com tom diferente de 0 ainda não renderizado | Cria um job `pitch` R3 para aquele `video_id` e tom, se ainda não houver um |
 | `removed` | A música é reativada. Com os arquivos completos, fica `ready` na hora, sem reprocessar; se nunca foi processada (transcrição recusada), a busca da letra roda de novo. O histórico continua em `song_events` |
 | `failed` | A entrada aparece com o erro; o host pode pedir nova tentativa |
 
@@ -153,12 +153,21 @@ Cada `video_id` é processado no máximo uma vez. Tudo o que o pipeline produz f
 1. Metadados, sem baixar o vídeo: título, canal, duração, thumbnail e, quando existirem, `track` e `artist` vindos do yt-dlp.
 2. Letra: LRCLIB por artista, faixa e duração; depois busca livre com o título limpo; depois `syncedlyrics`. Vence o resultado com duração mais próxima da do vídeo. Sem letra, o job termina aqui e a música passa para `awaiting_decision` (veja abaixo).
 3. Download do melhor áudio disponível.
-4. Separação: audio-separator gera `instrumental.flac` e `vocals.flac`.
+4. Separação: audio-separator, com BS-RoFormer em sobreposição 2 e autocast, gera `instrumental.flac` e `vocals.flac`.
 5. Idioma: detectado pelo texto da letra; na transcrição, pelo próprio Whisper.
-6. Alinhamento: stable-ts alinha o texto a `vocals.flac` e grava início, fim e confiança de cada palavra. Na transcrição autorizada, o Whisper transcreve a voz e a letra fica marcada como "transcrita".
+6. Alinhamento, com stable-ts e Whisper turbo, sem VAD, sobre `vocals.flac`. Com letra sincronizada, as linhas seguem o LRC e as palavras são alinhadas linha a linha (veja abaixo). Com letra só em texto, o texto inteiro é alinhado de uma vez. Na transcrição autorizada, o Whisper transcreve a voz e a letra fica marcada como "transcrita". Em todos os casos, grava início, fim e confiança de cada palavra.
 7. Tom original: essentia sobre o instrumental.
 8. Codificação para reprodução: Opus 160 kbps de cada stem.
 9. Pronto: `songs.status = ready` e evento `song.ready` para as telas.
+
+**Letra sincronizada: o LRC como esqueleto.** Alinhar a música inteira de uma vez deixou ~6% das linhas a segundos de onde são cantadas, e a audição reprovou o resultado. Os tempos do LRC também não servem direto: no spike, um clipe estava 5,5 s deslocado da letra e outra letra tinha deriva de 1,2% na velocidade. A solução aprovada de ouvido usa o LRC para as linhas e o Whisper para as palavras:
+
+1. O texto inteiro é alinhado à voz de uma vez, só para medir o deslocamento e a deriva entre o LRC e o áudio. A medida é uma reta robusta: Theil–Sen, refinada sem as linhas a mais de 2 s dela.
+2. Cada linha começa no tempo do LRC levado para o áudio por essa reta. Ela termina no tempo seguinte do LRC, contando as linhas vazias, que marcam pausas, e dura no máximo 12 s.
+3. As palavras de cada linha são alinhadas pelo stable-ts só dentro da janela da própria linha, com 0,3 s de margem de cada lado. Um erro fica preso naquela linha.
+4. Se as palavras de uma linha não alinharem, elas são distribuídas pelo tamanho e a linha fica `low_confidence`.
+
+Isso custa ~19 s a mais por música que alinhar só a música inteira.
 
 **Quando a letra não é encontrada**
 
@@ -188,7 +197,11 @@ Só um "sim" libera o download; um "não" de todos os donos deixa a música como
 
 Se a transcrição autorizada falhar, a música fica pronta como "sem letra" e o dono é avisado.
 
-**Job `pitch`** (pista `cpu`, dois jobs por vez): Rubber Band aplica `-p N --fine` nos dois FLAC e grava Opus em `pitch/<N>/`. Ele dispara quando a entrada chega com tom diferente de 0 ou quando alguém muda o tom. A faixa permitida é de −6 a +6 semitons.
+**Job `pitch`** (pista `cpu`, dois jobs por vez): Rubber Band aplica `-p N` nos dois FLAC, com os dois stems em paralelo, e grava Opus em `pitch/<N>/<motor>/`. A faixa permitida é de −6 a +6 semitons.
+
+- O motor é o R3 (`--fine`), de melhor qualidade, que leva de 1 a 4 minutos na CPU por tom.
+- O job dispara quando a entrada chega com tom diferente de 0 ou quando alguém muda o tom.
+- Se a mudança for na música que está tocando, sai primeiro um job R2 (`--fast`, ~12 s) e, quando ele termina, o job R3. A versão R2 é apagada quando a R3 fica pronta.
 
 **Prioridade:** o worker pega primeiro o job cuja música está mais perto de tocar; empate vai por ordem de criação. As duas pistas são independentes, então uma troca de tom nunca espera uma separação terminar.
 
@@ -200,8 +213,8 @@ Sete tabelas no SQLite. `songs` guarda cada vídeo uma única vez e nunca é apa
 | --- | --- | --- | --- |
 | `songs` | `video_id` (11 caracteres) | `title`, `artist`, `track`, `channel`, `duration_s`, `thumbnail_url`, `status`, `stage`, `original_key`, `language`, `lyrics_source`, `alignment_confidence`, `pipeline_version`, `error`, `created_at`, `ready_at`, `removed_at`, `removed_reason` | Uma linha por vídeo, nunca apagada. `status`: pending, awaiting_decision, processing, ready, failed ou removed. `lyrics_source`: lrclib, syncedlyrics, transcrita, manual ou nenhuma |
 | `song_events` | `id` | `video_id`, `kind`, `guest_id` (ou host), `details`, `created_at` | Histórico só de inclusão: criada, letra não encontrada, transcrição aceita ou recusada, pronta, removida, reativada |
-| `jobs` | `id` | `kind` (process, pitch), `video_id`, `semitones`, `options` (ex.: transcrever), `lane` (gpu, cpu), `status`, `stage`, `progress`, `attempts`, `error`, `created_at`, `started_at`, `finished_at` | Índice único parcial impede dois jobs iguais ativos |
-| `pitch_renders` | `video_id` + `semitones` | `status`, `path`, `created_at`, `last_used_at` | Cache de tons; limpeza pelos menos usados |
+| `jobs` | `id` | `kind` (process, pitch), `video_id`, `semitones`, `options` (ex.: transcrever, motor do tom), `lane` (gpu, cpu), `status`, `stage`, `progress`, `attempts`, `error`, `created_at`, `started_at`, `finished_at` | Índice único parcial impede dois jobs iguais ativos |
+| `pitch_renders` | `video_id` + `semitones` + `engine` | `status`, `path`, `created_at`, `last_used_at` | Cache de tons; limpeza pelos menos usados. `engine`: r3, ou r2 provisório numa troca ao vivo |
 | `rooms` | `id` | `code` (vai no QR), `name`, `host_pin_hash`, `is_active`, `created_at` | Uma sala ativa por vez na v1; o modelo já aceita várias |
 | `guests` | `id` (UUID) | `room_id`, `nickname`, `token_hash`, `created_at`, `last_seen_at` | O token fica no cookie do celular; o banco guarda só o hash |
 | `queue_entries` | `id` | `room_id`, `video_id`, `guest_id` (dono), `singer_name`, `semitones`, `position`, `status`, `removed_reason`, `created_at`, `started_at`, `ended_at` | `status`: queued, awaiting_decision, playing, done, skipped ou removed. `removed_reason`: dono, host ou transcrição recusada. Remoção é lógica |
@@ -227,8 +240,8 @@ data/                         volume Docker "karaoke-data"
         │   ├── instrumental.opus
         │   └── vocals.opus
         ├── pitch/
-        │   ├── +2/  instrumental.opus, vocals.opus
-        │   └── -3/  ...
+        │   ├── +2/r3/  instrumental.opus, vocals.opus
+        │   └── -3/r2/  ...           provisório, apagado quando a R3 fica pronta
         └── lyrics/
             ├── source.json   letra original e de onde veio
             └── aligned.json  linhas → palavras com início, fim e confiança
@@ -238,9 +251,11 @@ Formato de `aligned.json` (tempos em segundos):
 
 ```json
 {"version": 1, "language": "pt", "source": "lrclib",
- "lines": [{"start": 12.34, "end": 15.80,
+ "lines": [{"start": 12.34, "end": 15.80, "low_confidence": false,
             "words": [{"w": "palavra", "s": 12.34, "e": 12.90, "c": 0.93}]}]}
 ```
+
+`low_confidence` marca as linhas cujas palavras não puderam ser alinhadas e foram distribuídas pelo tamanho.
 
 **Regras**
 
@@ -303,9 +318,10 @@ A TV é dona da reprodução. Ela toca os dois stems com a Web Audio API, desenh
 
 - Relógio: `t = ctx.currentTime − início − atraso`, recalculado a cada quadro com `requestAnimationFrame`. O `atraso` soma `ctx.outputLatency` e um ajuste manual, porque caixas Bluetooth atrasam o som.
 - Tela: linha atual grande e a próxima menor, abaixo.
+- A linha aparece até 1 s antes de ser cantada, assim que a anterior termina, para dar tempo de ler.
 - Cada palavra se preenche da esquerda para a direita na proporção `(t − s) / (e − s)`, o efeito clássico de karaokê.
-- Antes de uma linha que vem depois de um trecho instrumental longo, aparece uma contagem regressiva.
-- Linha com confiança baixa no alinhamento acende inteira no início, em vez de preencher palavra por palavra errado.
+- Antes de uma linha que vem depois de 3 s ou mais sem canto, aparece uma contagem regressiva (● ● ●).
+- Linha marcada com `low_confidence`, ou com confiança baixa nas palavras, acende inteira no início, em vez de preencher palavra por palavra errado.
 - Música sem letra mostra título e "Instrumental".
 
 **Tom**
@@ -313,7 +329,7 @@ A TV é dona da reprodução. Ela toca os dois stems com a Web Audio API, desenh
 - O tom é escolhido no celular ao adicionar a música e pode mudar depois. A tela mostra "Original: Lá menor → Sol menor (−2)".
 - O Rubber Band muda o tom sem mudar a duração, então os tempos da letra continuam válidos em qualquer tom.
 - O render começa quando a entrada entra na fila. Se ainda não estiver pronto na hora de tocar, o intervalo mostra "preparando tom" e espera.
-- Mudança no meio da música: a TV continua tocando e, quando chega `pitch.ready`, carrega os novos stems e troca na mesma posição com um crossfade curto.
+- Mudança no meio da música: a TV continua tocando no tom atual. Quando chega `pitch.ready` da versão R2, em cerca de 12 s, ela carrega os novos stems e troca na mesma posição com um crossfade curto. Quando chega a R3, troca de novo do mesmo jeito.
 
 **Entre músicas**, a TV mostra o próximo cantor, a música, o tom e o QR Code, e a próxima começa sozinha depois de uma contagem curta. O host pode pausar ou pular. Se a próxima ainda estiver processando, a contagem espera ela ficar pronta; entradas aguardando a decisão de transcrever são puladas.
 
@@ -351,7 +367,7 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `song.progress` | Servidor → todos | `video_id`, etapa e percentual |
 | `song.lyrics_missing` | Servidor → donos e host | `video_id` e as entradas que aguardam a decisão de transcrever |
 | `song.ready` / `song.failed` | Servidor → todos | `video_id` e erro, quando houver |
-| `pitch.ready` | Servidor → TV | `video_id` e semitons |
+| `pitch.ready` | Servidor → TV | `video_id`, semitons e motor (r2 ou r3) |
 | `player.command` | Servidor → TV | play, pause, skip, voz guia, atraso |
 | `player.state` | TV → servidor → todos | Entrada atual, posição e pausa, a cada segundo |
 
@@ -399,7 +415,7 @@ O maior risco é o YouTube quebrar o yt-dlp. Como tudo que já foi processado fi
 | YouTube muda e o yt-dlp para de funcionar | Novas músicas não baixam | Atualizar `yt-dlp` e `yt-dlp-ejs` juntos, com um comando de atualização no worker; o acervo continua tocando |
 | Letra não encontrada, comum em músicas brasileiras menos conhecidas | Sem destaque de palavras | O dono decide se a letra é transcrita; se recusar, nada é baixado e a música fica como removida. O host também pode colar a letra e realinhar |
 | Letra errada (cover, outra versão, outra música) | Destaque sem sentido | Escolha pela duração mais próxima; host troca a letra e só o alinhamento roda de novo |
-| Alinhamento falha em rap rápido, gritos ou backing vocals | Palavras acendem fora de hora | Confiança por palavra; linha com confiança baixa acende inteira |
+| Alinhamento falha em trechos lentos, gritos, backing vocals ou linhas muito curtas (~6% das linhas no spike, alinhando a música inteira) | Linhas e palavras fora de hora | Com letra sincronizada, as linhas seguem o LRC e as palavras são alinhadas linha a linha; sem ela, linhas com confiança baixa acendem inteiras |
 | VRAM insuficiente para separação e Whisper juntos | Erro de memória na GPU | A GPU tem 8 GB: o worker carrega um modelo por vez e libera a VRAM entre a separação e o alinhamento; modelos escolhidos pelo spike |
 | Atraso de caixa Bluetooth | Letra adiantada em relação ao som | Ajuste manual de atraso na TV, salvo no navegador |
 | Disco enche (~65 MB por música) | Falha ao gravar | Limite para o cache de tons e aviso no painel do host. Removidas continuam ocupando espaço, porque os arquivos são mantidos |
@@ -410,11 +426,11 @@ O maior risco é o YouTube quebrar o yt-dlp. Como tudo que já foi processado fi
 
 Sete fases, cada uma com um critério de pronto verificável. A fase 0 vem antes de qualquer código do app, porque escolhe os modelos que o resto usa.
 
-0. **Spike de viabilidade**, no seu PC e fora do app.
-    - Comparar BS-RoFormer, MelBand RoFormer e `htdemucs_ft` em seis músicas (três em português, três em inglês): qualidade de ouvido, tempo e VRAM.
-    - Alinhar as mesmas músicas com stable-ts em dois modelos Whisper que caibam em 8 GB de VRAM (large-v3-turbo e large-v3 via faster-whisper) e conferir as palavras.
-    - Ouvir o Rubber Band em ±4 semitons.
-    - Pronto quando: modelos escolhidos e tempo total por música medido.
+0. **Spike de viabilidade:** concluída em 1º de outubro de 2026 ([resultados](../spikes/phase0/RESULTS.md)).
+    - Separação: BS-RoFormer com sobreposição 2 e autocast, ~66 s por música.
+    - Letra: LRC como esqueleto das linhas e Whisper turbo para as palavras, linha a linha.
+    - Tom: Rubber Band R3, com R2 provisório na troca ao vivo.
+    - Tempo total: ~111 s por música, somando as etapas medidas, cerca de 39% da duração da música.
 1. **Pipeline em linha de comando:** `karaoke process <video_id>` gera a pasta completa.
     - Pronto quando: a segunda execução termina sem usar a GPU, e uma execução interrompida retoma de onde parou.
 2. **API, banco e worker:** tabelas, jobs com pistas e prioridade, busca, rotas de música e Compose com GPU.
