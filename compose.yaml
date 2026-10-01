@@ -1,0 +1,26 @@
+# Phase 1: only the worker, run on demand as `docker compose run --rm worker process <video>`.
+# API, Caddy and the rest of the stack come in phase 2 (docs/ARCHITECTURE.md, roadmap).
+name: karaoke
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: docker/worker.Dockerfile
+    image: karaoke-worker
+    volumes:
+      - karaoke-data:/data
+      # development: the code on disk, without rebuilding the image
+      - ./backend/karaoke:/app/karaoke
+      - ./backend/tests:/app/tests
+      - ./backend/pyproject.toml:/app/pyproject.toml:ro
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+volumes:
+  karaoke-data:

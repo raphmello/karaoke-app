@@ -1,0 +1,54 @@
+[project]
+name = "karaoke"
+version = "0.1.0"
+description = "Karaokê local: YouTube, voz removida, tom ajustável e letra palavra por palavra"
+requires-python = ">=3.12,<3.13"
+# Versions validated in the phase 0 spike (spikes/phase0/RESULTS.md).
+dependencies = [
+    "torch==2.11.0",
+    "torchaudio==2.11.0",
+    "audio-separator[gpu]==0.47.0",
+    "audioread",  # imported by audio-separator but not declared as its dependency
+    "yt-dlp[default]==2026.8.19",
+    "stable-ts==2.19.1",
+    "openai-whisper==20250625",
+    "essentia==2.1b6.dev1389",  # the newest build with Python 3.12 Linux wheels
+    "lingua-language-detector",
+    "syncedlyrics",
+    "requests",
+    "numpy",
+    "soundfile",
+]
+
+[project.scripts]
+karaoke = "karaoke.cli:main"
+
+[dependency-groups]
+dev = ["pytest", "ruff"]
+
+[tool.uv]
+# The worker runs only in its Linux container; the CUDA builds of PyTorch exist only for Linux and Windows.
+environments = ["sys_platform == 'linux'"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
