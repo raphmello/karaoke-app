@@ -288,3 +288,15 @@ def test_the_search_tells_the_length_before_anything_is_created(app, client, pho
     assert ana.post(f"/api/rooms/{code}/queue", json={"video_id": VIDEO}).status_code == 422
     with db() as session:
         assert session.get(Song, VIDEO) is None and session.scalar(select(Job)) is None  # nothing to process
+
+
+
+def test_a_refusal_says_who_may_remove_the_song(phone, host, code):
+    ana, bruno = phone(code, "Ana"), phone(code, "Bruno")
+    anas, hosts = add(ana, code), add(host, code, OTHER_VIDEO)
+    refused = bruno.delete(f"/api/rooms/{code}/queue/{anas}")
+    assert refused.status_code == 403
+    assert refused.json()["detail"] == "Só Ana, que adicionou esta música, ou o host podem remover esta música."
+    key = bruno.patch(f"/api/rooms/{code}/queue/{anas}", json={"semitones": 2}).json()["detail"]
+    assert key == "Só Ana, que adicionou esta música, ou o host podem mudar o tom desta música."
+    assert bruno.delete(f"/api/rooms/{code}/queue/{hosts}").json()["detail"] == "Só o host pode remover esta música."

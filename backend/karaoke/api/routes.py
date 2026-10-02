@@ -246,9 +246,25 @@ def notify(fn, *args) -> None:
     anyio.from_thread.run(fn, *args)
 
 
-def require(actor: Actor, action: Action, entry: QueueEntry | None = None) -> None:
-    if not can(actor, action, entry):
-        raise HTTPException(403, "Só quem adicionou esta música, ou o host, pode fazer isso.")
+REFUSED_VERB = {
+    Action.REMOVE_ENTRY: "remover esta música",
+    Action.CHANGE_KEY: "mudar o tom desta música",
+    Action.ANSWER_TRANSCRIPTION: "responder sobre a letra desta música",
+}
+
+
+def require(actor: Actor, action: Action, entry: QueueEntry | None = None, session: Session | None = None) -> None:
+    """Refuses what the permission matrix doesn't allow, saying who may: the entry's owner, by nickname, or the
+    host."""
+    if can(actor, action, entry):
+        return
+    verb = REFUSED_VERB.get(action)
+    if entry is None or verb is None:
+        raise HTTPException(403, "Só o host pode fazer isso.")
+    owner = session.get(Guest, entry.guest_id) if session is not None and entry.guest_id else None
+    if owner is None:
+        raise HTTPException(403, f"Só o host pode {verb}.")
+    raise HTTPException(403, f"Só {owner.nickname}, que adicionou esta música, ou o host podem {verb}.")
 
 
 def room_entry(session: Session, room: Room, entry_id: int) -> QueueEntry:
@@ -298,7 +314,7 @@ def change(request: Request, db: Sessions, code: str, entry_id: int, body: Queue
         room, actor = deps.room_actor(request, session, code)
         entry = room_entry(session, room, entry_id)
         if body.semitones is not None:
-            require(actor, Action.CHANGE_KEY, entry)
+            require(actor, Action.CHANGE_KEY, entry, session)
             entry.semitones = body.semitones
         if body.position is not None:
             require(actor, Action.REORDER, entry)
@@ -319,7 +335,7 @@ def remove(request: Request, db: Sessions, code: str, entry_id: int) -> None:
     with transaction(db) as session:
         room, actor = deps.room_actor(request, session, code)
         entry = room_entry(session, room, entry_id)
-        require(actor, Action.REMOVE_ENTRY, entry)
+        require(actor, Action.REMOVE_ENTRY, entry, session)
         try:
             was_playing = remove_entry(session, entry, BY_HOST if actor.is_host else BY_OWNER)
         except QueueError as exc:
@@ -335,7 +351,7 @@ def transcription(request: Request, db: Sessions, code: str, entry_id: int, body
     with transaction(db) as session:
         room, actor = deps.room_actor(request, session, code)
         entry = room_entry(session, room, entry_id)
-        require(actor, Action.ANSWER_TRANSCRIPTION, entry)
+        require(actor, Action.ANSWER_TRANSCRIPTION, entry, session)
         try:
             answer_transcription(session, entry, body.accept, actor.owner_id or HOST)
         except QueueError as exc:

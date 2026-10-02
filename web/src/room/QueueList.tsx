@@ -19,7 +19,8 @@ export function QueueList({
   progress: Progress;
   isHost: boolean;
 }) {
-  const [error, setError] = useState<string | null>(null);
+  // A refusal or failure shows under the entry it is about, for a few seconds.
+  const [errors, setErrors] = useState<Record<number, string>>({});
   // Keys asked for but not yet confirmed by a snapshot, so quick taps add up instead of all starting from the old value.
   const [pending, setPending] = useState<Record<number, number>>({});
   useEffect(() => {
@@ -28,19 +29,19 @@ export function QueueList({
       return left.length === Object.keys(current).length ? current : Object.fromEntries(left);
     });
   }, [entries]);
-  const run = async (action: () => Promise<unknown>) => {
-    setError(null);
+  const run = async (entryId: number, action: () => Promise<unknown>) => {
+    setErrors(({ [entryId]: _, ...rest }) => rest);
     try {
       await action();
     } catch (e) {
-      setError((e as Error).message);
+      setErrors((current) => ({ ...current, [entryId]: (e as Error).message }));
+      window.setTimeout(() => setErrors(({ [entryId]: _, ...rest }) => rest), 6000);
     }
   };
 
   if (entries.length === 0) return <p className="py-8 text-center text-zinc-400">A fila está vazia.</p>;
   return (
     <div className="flex flex-col gap-3">
-      {error && <p className="rounded-lg bg-red-950 px-3 py-2 text-sm text-red-200">{error}</p>}
       <ol className="flex flex-col gap-3">
         {entries.map((entry, index) => {
           const mayEdit = isHost || entry.mine;
@@ -49,7 +50,7 @@ export function QueueList({
           const setKey = (n: number) => {
             const value = clampSemitones(n);
             setPending((current) => ({ ...current, [entry.id]: value }));
-            void run(() => api.change(code, entry.id, { semitones: value }));
+            void run(entry.id, () => api.change(code, entry.id, { semitones: value }));
           };
           return (
             <li
@@ -73,10 +74,10 @@ export function QueueList({
                 </div>
                 {isHost && (
                   <div className="flex flex-col gap-1">
-                    <button className={small} disabled={index === 0} onClick={() => run(() => api.change(code, entry.id, { position: index - 1 }))} aria-label="Subir na fila">
+                    <button className={small} disabled={index === 0} onClick={() => run(entry.id, () => api.change(code, entry.id, { position: index - 1 }))} aria-label="Subir na fila">
                       ↑
                     </button>
-                    <button className={small} disabled={index === entries.length - 1} onClick={() => run(() => api.change(code, entry.id, { position: index + 1 }))} aria-label="Descer na fila">
+                    <button className={small} disabled={index === entries.length - 1} onClick={() => run(entry.id, () => api.change(code, entry.id, { position: index + 1 }))} aria-label="Descer na fila">
                       ↓
                     </button>
                   </div>
@@ -90,10 +91,10 @@ export function QueueList({
                     ter erros.
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    <button className="rounded-lg bg-amber-400 px-3 py-1.5 font-semibold text-zinc-950" onClick={() => run(() => api.answer(code, entry.id, true))}>
+                    <button className="rounded-lg bg-amber-400 px-3 py-1.5 font-semibold text-zinc-950" onClick={() => run(entry.id, () => api.answer(code, entry.id, true))}>
                       Sim, transcrever
                     </button>
-                    <button className={small} onClick={() => run(() => api.answer(code, entry.id, false))}>
+                    <button className={small} onClick={() => run(entry.id, () => api.answer(code, entry.id, false))}>
                       Não, remover
                     </button>
                   </div>
@@ -123,17 +124,33 @@ export function QueueList({
                       className={`${small} text-red-300`}
                       label="Remover"
                       confirmLabel={entry.status === "playing" ? "Remover e pular" : "Confirmar remoção"}
-                      onConfirm={() => void run(() => api.remove(code, entry.id))}
+                      onConfirm={() => void run(entry.id, () => api.remove(code, entry.id))}
                     />
                   </span>
                 </div>
               )}
               {isHost && entry.song.status === "failed" && (
-                <button className={`${small} mt-2`} onClick={() => run(() => api.reprocess(entry.video_id, []))}>
+                <button className={`${small} mt-2`} onClick={() => run(entry.id, () => api.reprocess(entry.video_id, []))}>
                   Tentar processar de novo
                 </button>
               )}
-              {!mayEdit && <p className="mt-2 text-xs text-zinc-500">{key.current}</p>}
+              {!mayEdit && (
+                // Someone else's song: the button is there so the server can say who may remove it
+                <div className="mt-2 flex items-center gap-2">
+                  <p className="text-xs text-zinc-500">{key.current}</p>
+                  <button
+                    className="ml-auto rounded-lg px-3 py-1.5 text-sm font-semibold text-zinc-500 hover:bg-zinc-800"
+                    onClick={() => run(entry.id, () => api.remove(code, entry.id))}
+                  >
+                    Remover
+                  </button>
+                </div>
+              )}
+              {errors[entry.id] && (
+                <p className="mt-2 rounded-lg bg-amber-950 px-3 py-2 text-sm text-amber-200" role="alert">
+                  {errors[entry.id]}
+                </p>
+              )}
             </li>
           );
         })}
