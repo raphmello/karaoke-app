@@ -3,7 +3,17 @@ from itertools import pairwise
 import numpy as np
 import pytest
 
-from karaoke.pipeline.alignment import LAST_LINE, MAX_LINE, fit_line, skeleton, uniform_words
+from karaoke.pipeline.alignment import (
+    HOP,
+    LAST_LINE,
+    MAX_LINE,
+    SAMPLE_RATE,
+    check_fit,
+    fit_line,
+    skeleton,
+    uniform_words,
+    voiced_frames,
+)
 
 
 def test_fit_line_finds_offset_and_drift():
@@ -49,3 +59,35 @@ def test_uniform_words_cover_the_line_by_length():
     assert all(a["e"] == pytest.approx(b["s"]) for a, b in pairwise(words))
     assert words[-1]["e"] <= 20.0
     assert words[1]["e"] - words[1]["s"] > words[0]["e"] - words[0]["s"]
+
+
+# A voice that sings where an LRC says, almost through each 4 s line, then a pause: the Numb case in small.
+STAMPS = [{"t": 20.0 + 4 * i, "text": f"line {i}"} for i in range(8)] + [{"t": 52.0, "text": ""}]
+
+
+def voice_at(stamps, shift=0.0, seconds=70.0) -> np.ndarray:
+    audio = np.zeros(int(seconds * SAMPLE_RATE), dtype=np.float32)
+    for stamp in stamps:
+        if stamp["text"]:
+            a, b = int((stamp["t"] + shift) * SAMPLE_RATE), int((stamp["t"] + shift + 3.8) * SAMPLE_RATE)
+            audio[a:b] = 0.3 * np.sin(np.arange(b - a) / 10)
+    return audio
+
+
+def test_voiced_frames_follow_the_singing():
+    voiced = voiced_frames(voice_at(STAMPS))
+    assert voiced[int(21 / HOP)] and not voiced[int(10 / HOP)] and not voiced[int(23.9 / HOP)]
+
+
+def test_a_lost_whisper_fit_gives_way_to_the_offset_the_voice_shows():
+    voiced = voiced_frames(voice_at(STAMPS, shift=2.0))
+    slope, intercept, info = check_fit(STAMPS, 0.76, -21.8, voiced)  # what Whisper measured for Numb
+    assert info["mapping"] == "voice"
+    assert slope == 1.0 and intercept == pytest.approx(2.0, abs=0.15)
+    assert info["voice_f1_offset"] > info["voice_f1_fit"] + 0.05
+
+
+def test_a_good_whisper_fit_stays():
+    voiced = voiced_frames(voice_at(STAMPS, shift=0.5))
+    slope, intercept, info = check_fit(STAMPS, 1.002, 0.45, voiced)
+    assert (slope, intercept, info["mapping"]) == (1.002, 0.45, "whisper")

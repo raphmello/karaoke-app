@@ -1,9 +1,10 @@
 """Stage 6: word timings, with stable-ts and Whisper turbo (no VAD) on the isolated voice.
 
 - Synced lyrics (LRC): the LRC is the skeleton. The whole text is aligned once only to measure the offset and
-  drift between the LRC and this audio; every line then starts at its LRC time mapped onto the audio, and its
-  words are aligned inside that line's window alone, so an error cannot spill into the next line. A line whose
-  words cannot be aligned gets them spread by length and is marked low_confidence.
+  drift between the LRC and this audio, and that measure is checked against where the isolated voice actually
+  sings (a whole-song alignment can get lost, as it did in Numb). Every line then starts at its LRC time mapped
+  onto the audio, and its words are aligned inside that line's window alone, so an error cannot spill into the
+  next line. A line whose words cannot be aligned gets them spread by length and is marked low_confidence.
 - Plain lyrics: the whole text is aligned at once.
 - No lyrics, transcription authorized: Whisper transcribes the voice.
 
@@ -25,6 +26,10 @@ PAD = 0.3  # seconds of audio on each side of a line's window
 MAX_LINE = 12.0  # a line's window never runs longer, even before a long instrumental break
 LAST_LINE = 6.0  # window of the last line, which has no next timestamp
 OUTLIER = 2.0  # lines further than this from the fitted line do not shape it
+HOP = 0.05  # seconds per frame of the voice's energy
+VOICED = 0.1  # a frame sings when its energy passes this share of the loud frames' (95th percentile)
+SEARCH = 60.0  # the plain offsets tried, in seconds each way
+MARGIN = 0.05  # how much better (F1) a plain offset must cover the voice to replace Whisper's fit
 
 
 def fit_line(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
@@ -58,6 +63,44 @@ def skeleton(stamps: list[dict], slope: float, intercept: float) -> list[dict]:
         end = min(slope * later[0] + intercept, start + MAX_LINE) if later else start + LAST_LINE
         lines.append({"text": stamp["text"], "start": round(max(start, 0.0), 3), "end": round(max(end, 0.0), 3)})
     return lines
+
+
+def voiced_frames(audio: np.ndarray) -> np.ndarray:
+    """Which HOP-long frames of the isolated voice carry singing."""
+    n = int(HOP * SAMPLE_RATE)
+    frames = audio[: len(audio) // n * n].reshape(-1, n)
+    if not len(frames):
+        return np.zeros(0, dtype=bool)
+    rms = np.sqrt((frames.astype(np.float64) ** 2).mean(axis=1))
+    return rms > VOICED * np.percentile(rms, 95)
+
+
+def voice_score(stamps: list[dict], slope: float, intercept: float, voiced: np.ndarray) -> float:
+    """F1 of "the voice sings inside the lines" for one LRC-to-audio mapping."""
+    lines = np.zeros(len(voiced), dtype=bool)
+    for line in skeleton(stamps, slope, intercept):
+        lines[int(line["start"] / HOP): int(line["end"] / HOP)] = True
+    hits = (voiced & lines).sum()
+    if not hits:
+        return 0.0
+    precision, recall = hits / lines.sum(), hits / voiced.sum()
+    return float(2 * precision * recall / (precision + recall))
+
+
+def check_fit(stamps: list[dict], slope: float, intercept: float, voiced: np.ndarray) -> tuple[float, float, dict]:
+    """Keep Whisper's fit unless a plain offset (no drift) covers the voice clearly better."""
+    fitted = voice_score(stamps, slope, intercept, voiced)
+    offsets = np.arange(-SEARCH, SEARCH + HOP, 0.1)
+    scores = np.array([voice_score(stamps, 1.0, float(o), voiced) for o in offsets])
+    # Lines often run a bit longer than the singing, so a range of offsets ties: take the middle of the best range.
+    near_best = np.flatnonzero(scores >= scores.max() - 0.005)
+    best = int(near_best[len(near_best) // 2])
+    info = {"voice_f1_fit": round(fitted, 3), "voice_f1_offset": round(float(scores[best]), 3)}
+    if scores[best] > fitted + MARGIN:
+        log.info("a reta do Whisper cobre mal a voz (%.2f); usando deslocamento de %.1f s (%.2f)",
+                 fitted, offsets[best], scores[best])
+        return 1.0, round(float(offsets[best]), 2), {**info, "mapping": "voice"}
+    return slope, intercept, {**info, "mapping": "whisper"}
 
 
 def uniform_words(line: dict) -> list[dict]:
@@ -125,6 +168,7 @@ def align_synced(model, vocals: str, stamps: list[dict], language: str | None) -
     slope, intercept = fit_line(x, y)
 
     audio = load_audio(vocals)
+    slope, intercept, checked = check_fit(stamps, slope, intercept, voiced_frames(audio))
     lines = []
     for line in skeleton(stamps, slope, intercept):
         words = align_line(model, audio, line, language)
@@ -132,7 +176,7 @@ def align_synced(model, vocals: str, stamps: list[dict], language: str | None) -
             lines.append(_line(line["start"], line["end"], words))
         else:
             lines.append(_line(line["start"], line["end"], uniform_words(line), low_confidence=True))
-    return lines, {"offset_s": round(intercept, 2), "drift_pct": round((slope - 1) * 100, 2)}
+    return lines, {"offset_s": round(intercept, 2), "drift_pct": round((slope - 1) * 100, 2), **checked}
 
 
 def align_plain(model, vocals: str, texts: list[str], language: str | None) -> list[dict]:
