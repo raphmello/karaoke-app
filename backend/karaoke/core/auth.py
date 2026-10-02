@@ -4,7 +4,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import math
 import secrets
+import threading
+import time
 
 GUEST_COOKIE = "karaoke_guest"
 HOST_COOKIE = "karaoke_host"
@@ -42,6 +45,36 @@ def new_guest_token() -> tuple[str, str]:
 
 def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+class LoginLimiter:
+    """Too many wrong PINs from one address lock that address out for a while: once the app is on the internet,
+    a short PIN would otherwise fall to guessing. In memory, like the host's sessions."""
+
+    def __init__(self, attempts: int = 5, window_s: float = 600, lockout_s: float = 600, clock=time.monotonic):
+        self.attempts, self.window_s, self.lockout_s, self.clock = attempts, window_s, lockout_s, clock
+        self._failures: dict[str, list[float]] = {}
+        self._locked_until: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def retry_after(self, address: str) -> int:
+        """Seconds until this address may try again; 0 when it may try now."""
+        with self._lock:
+            left = self._locked_until.get(address, 0) - self.clock()
+            return max(0, math.ceil(left))
+
+    def failed(self, address: str) -> None:
+        now = self.clock()
+        with self._lock:
+            recent = [t for t in self._failures.get(address, []) if t > now - self.window_s] + [now]
+            if len(recent) >= self.attempts:
+                self._locked_until[address] = now + self.lockout_s
+                recent = []
+            self._failures[address] = recent
+
+    def succeeded(self, address: str) -> None:
+        with self._lock:
+            self._failures.pop(address, None)
 
 
 class HostSigner:

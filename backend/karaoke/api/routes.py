@@ -153,8 +153,20 @@ def library(
 
 @api.post("/host/login", status_code=204)
 def host_login(request: Request, response: Response, body: LoginIn, settings: AppSettings) -> None:
+    limiter = request.app.state.login_limiter
+    address = deps.client_address(request)
+    if wait := limiter.retry_after(address):
+        minutes = max(1, round(wait / 60))
+        raise HTTPException(
+            429,
+            f"Muitas tentativas erradas. Tente de novo em {minutes} minuto{'s' if minutes > 1 else ''}.",
+            headers={"Retry-After": str(wait)},
+        )
     if not pin_matches(body.pin, settings.host_pin):
+        limiter.failed(address)
+        log.warning("PIN errado vindo de %s", address)
         raise HTTPException(401, "PIN incorreto.")
+    limiter.succeeded(address)
     deps.set_cookie(request, response, HOST_COOKIE, deps.host_signer(request).issue(), HOST_COOKIE_AGE)
 
 
@@ -496,6 +508,15 @@ def disk(request: Request, db: Sessions, settings: AppSettings) -> DiskOut:
 
 
 # --- worker → API --------------------------------------------------------------------------------------------------
+
+@internal.get("/media-auth", status_code=204)
+def media_auth(request: Request, db: Sessions) -> None:
+    """Caddy asks before serving /media (forward_auth): only the host or a guest of an open room gets the audio and
+    the lyrics. Not routed by Caddy itself."""
+    with transaction(db) as session:
+        if deps.find_actor(request, session) is None:
+            raise HTTPException(401, "Entre numa sala pelo QR Code primeiro.")
+
 
 @internal.post("/events", status_code=204)
 def worker_event(request: Request, event: EventIn) -> None:

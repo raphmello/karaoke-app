@@ -1,4 +1,5 @@
 # The whole app on the PC (docs/ARCHITECTURE.md, deployment): `docker compose up -d`, then http://<PC's IP>:8080.
+# With `--profile remote`, cloudflared also publishes it on the Cloudflare Tunnel (token in .env).
 # Only Caddy is exposed. The bind mounts of ./backend are for development: code changes without rebuilding.
 name: karaoke
 
@@ -8,6 +9,7 @@ services:
       context: .
       dockerfile: docker/caddy.Dockerfile
     image: karaoke-caddy
+    restart: unless-stopped
     ports:
       - "8080:8080"
     volumes:
@@ -20,6 +22,7 @@ services:
       context: .
       dockerfile: docker/api.Dockerfile
     image: karaoke-api
+    restart: unless-stopped
     env_file:
       - path: .env
         required: false
@@ -35,6 +38,7 @@ services:
       context: .
       dockerfile: docker/worker.Dockerfile
     image: karaoke-worker
+    restart: unless-stopped
     command: ["worker"]  # `docker compose run --rm worker process <video>` still processes one video by hand
     env_file:
       - path: .env
@@ -53,6 +57,17 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+
+  # The Cloudflare Tunnel: created in the Cloudflare dashboard, public hostname -> http://caddy:8080.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.3
+    profiles: ["remote"]
+    restart: unless-stopped
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}  # empty: cloudflared stops and says the token is missing
+    depends_on:
+      - caddy
 
 volumes:
   karaoke-data:

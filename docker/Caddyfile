@@ -1,4 +1,13 @@
-# The only service exposed on the PC (port 8080). /internal is never routed: only the worker reaches it.
+# The only service exposed on the PC (port 8080), on the home network and, with the "remote" profile, through the
+# Cloudflare Tunnel. /internal is never routed: only the worker (and Caddy's own forward_auth) reach it.
+{
+	servers {
+		# cloudflared reaches Caddy over Docker's private network: trust its X-Forwarded-* headers, so the API sees
+		# that the original connection is HTTPS (and marks its cookies Secure)
+		trusted_proxies static private_ranges
+	}
+}
+
 :8080 {
 	encode zstd gzip
 
@@ -10,9 +19,14 @@
 		reverse_proxy api:8000
 	}
 
-	# Audio and lyrics straight from the volume, read-only. file_server answers Range requests, which the
-	# browser needs to seek.
+	# Audio and lyrics straight from the volume, read-only, for the host and the guests of an open room only (the
+	# API checks the cookie). file_server answers Range requests, which the browser needs to seek. "private" keeps
+	# Cloudflare from caching them, which would hand them to anyone.
 	handle_path /media/* {
+		forward_auth api:8000 {
+			uri /internal/media-auth
+		}
+		header Cache-Control "private, max-age=86400"
 		root * /srv/karaoke/media
 		file_server
 	}

@@ -47,6 +47,23 @@ cd web && pnpm install && pnpm dev
 
 O Vite abre em `http://localhost:5173/tv` e repassa `/api`, `/media` e `/ws` para o Caddy.
 
+## Acesso de fora de casa (Cloudflare Tunnel)
+
+Com o túnel, o app fica em `https://karaoke.<seu-domínio>` sem abrir portas no roteador; a rede de casa continua funcionando.
+
+1. No painel da Cloudflare: **Zero Trust > Networks > Tunnels > Create a tunnel > Cloudflared**. Dê um nome e copie o token.
+2. Em **Public Hostname**, adicione `karaoke.<seu-domínio>` com o serviço `HTTP` e a URL `caddy:8080`.
+3. No `.env`: `CLOUDFLARE_TUNNEL_TOKEN=<token>` e `PUBLIC_BASE_URL=https://karaoke.<seu-domínio>`. O QR da TV passa a levar sempre a esse endereço.
+4. Suba com o túnel:
+
+```bash
+docker compose --profile remote up -d
+```
+
+Use um PIN de host forte: 5 tentativas erradas do mesmo endereço bloqueiam o login dele por 10 minutos. Áudios e letras (`/media`) só abrem para o host e para convidados de uma sala aberta.
+
+Para o PC ficar sempre pronto: no Windows, desligue a suspensão no plano de energia e deixe o Docker Desktop iniciar com o Windows; os containers voltam sozinhos (`restart: unless-stopped`).
+
 ## API à mão
 
 Um roteiro mínimo com `curl`:

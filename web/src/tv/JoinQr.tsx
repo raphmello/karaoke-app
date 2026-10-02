@@ -1,12 +1,13 @@
-// The QR the phones read: <origin>/j/<code>. The origin is the TV's own, unless the TV runs on localhost, which a
-// phone can't reach: then PUBLIC_BASE_URL (docs/ARCHITECTURE.md, "Como alguém entra").
+// The QR the phones read: <origin>/j/<code>. The origin is PUBLIC_BASE_URL whenever it is set (the tunnel's domain),
+// however the TV itself was opened, so the QR works at home and away; without it, the TV's own origin
+// (docs/ARCHITECTURE.md, "Como alguém entra").
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
 import type { ActiveRoom } from "../api";
 
 export function joinUrl(room: ActiveRoom): { url: string; unreachable: boolean } {
   const local = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
-  const origin = local && room.public_base_url ? room.public_base_url : location.origin;
+  const origin = room.public_base_url || location.origin;
   return { url: `${origin}${room.join_path}`, unreachable: local && !room.public_base_url };
 }
 

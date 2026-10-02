@@ -75,6 +75,12 @@ def room_actor(request: HTTPConnection, session: Session, code: str) -> tuple[Ro
     return room, actor
 
 
+def client_address(request: HTTPConnection) -> str:
+    """Who is asking, for the login limit. Through the tunnel the Cloudflare edge sets CF-Connecting-IP (a client
+    can't forge it there); on the home network the request comes straight from the phone or the PC."""
+    return request.headers.get("cf-connecting-ip") or (request.client.host if request.client else "?")
+
+
 def set_cookie(request: Request, response: Response, name: str, value: str, max_age: int) -> None:
     response.set_cookie(
         name,
