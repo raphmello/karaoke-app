@@ -164,7 +164,7 @@ function TvQueue({ room, engine }: { room: ActiveRoom; engine: AudioEngine }) {
         onEnded={end}
         onReport={report}
         commands={commands}
-        corner={<JoinQr room={room} size={96} />}
+        corner={<JoinQr room={room} size={150} caption="Leia para entrar e escolher músicas" />}
       />
     );
   }

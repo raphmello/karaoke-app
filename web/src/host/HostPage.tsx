@@ -40,7 +40,6 @@ type Tab = "room" | "library" | "panel";
 const TABS: [Tab, string][] = [["room", "Sala"], ["library", "Acervo"], ["panel", "Painel"]];
 
 function HostTabs({ active, missing, error }: { active: ActiveRoom | null; missing: boolean; error: string | null }) {
-  const queryClient = useQueryClient();
   const [tab, setTab] = useState<Tab>("room");
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
@@ -60,55 +59,102 @@ function HostTabs({ active, missing, error }: { active: ActiveRoom | null; missi
       </header>
       {tab === "library" && <LibraryAdmin />}
       {tab === "panel" && <Panel />}
-      {tab === "room" && (
-        <>
-          {active ? <Room room={active} /> : missing ? <p className="text-zinc-400">Nenhuma sala aberta.</p> : <p className="text-red-400">{error}</p>}
-          <OpenRoom replacing={Boolean(active)} onOpened={() => void queryClient.invalidateQueries({ queryKey: ["active-room"] })} />
-        </>
-      )}
+      {tab === "room" &&
+        (active ? (
+          <Room room={active} />
+        ) : missing ? (
+          <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-zinc-900 p-4">
+            <p className="text-zinc-400">Nenhuma sala aberta.</p>
+            <OpenRoomButton replacing={false} />
+          </section>
+        ) : (
+          <p className="text-red-400">{error}</p>
+        ))}
     </main>
   );
 }
 
-function OpenRoom({ replacing, onOpened }: { replacing: boolean; onOpened: () => void }) {
+/** "Abrir sala" opens a dialog for the night's name (optional). With a room open, it warns that the current one
+ *  closes and its QR stops working. */
+function OpenRoomButton({ replacing }: { replacing: boolean }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950" onClick={() => setOpen(true)}>
+        {replacing ? "Abrir sala nova" : "Abrir sala"}
+      </button>
+      {open && <OpenRoomDialog replacing={replacing} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+function OpenRoomDialog({ replacing, onClose }: { replacing: boolean; onClose: () => void }) {
+  const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (replacing && !asking) {
-      setAsking(true); // a second tap confirms; see ConfirmButton for why there is no window.confirm()
-      return;
-    }
-    setAsking(false);
+    setBusy(true);
+    setError(null);
     try {
       await api.openRoom(name.trim());
-      setName("");
-      onOpened();
+      await queryClient.invalidateQueries({ queryKey: ["active-room"] });
+      onClose();
     } catch (e) {
       setError((e as Error).message);
+      setBusy(false);
     }
   };
+
   return (
-    <form onSubmit={submit} className="flex flex-wrap items-center gap-2 rounded-xl bg-zinc-900 p-4">
-      <input
-        className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 outline-none focus:border-amber-400"
-        placeholder="Nome da noite (opcional)"
-        maxLength={80}
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-      />
-      <button className={`rounded-lg px-4 py-2 font-bold ${asking ? "bg-red-600 text-white" : "bg-amber-400 text-zinc-950"}`}>
-        {asking ? "Confirmar: encerra a sala atual" : replacing ? "Abrir sala nova" : "Abrir sala"}
-      </button>
-      {asking && (
-        <button type="button" className="rounded-lg bg-zinc-800 px-4 py-2 font-semibold" onClick={() => setAsking(false)}>
-          Cancelar
-        </button>
-      )}
-      {asking && <p className="w-full text-sm text-zinc-400">A sala atual será encerrada e o QR antigo para de funcionar.</p>}
-      {error && <p className="w-full text-sm text-red-400">{error}</p>}
-    </form>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+      onClick={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <form
+        onSubmit={submit}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="open-room-title"
+        className="flex w-full max-w-md flex-col gap-4 rounded-2xl bg-zinc-900 p-6 ring-1 ring-zinc-700"
+      >
+        <h2 id="open-room-title" className="text-xl font-bold">
+          {replacing ? "Abrir sala nova" : "Abrir sala"}
+        </h2>
+        <label className="flex flex-col gap-1 text-sm text-zinc-400">
+          Nome da sala (opcional)
+          <input
+            autoFocus
+            maxLength={80}
+            className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-base text-zinc-100 outline-none focus:border-amber-400"
+            placeholder="Ex.: Sexta com os amigos"
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </label>
+        {replacing && (
+          <p className="rounded-lg bg-amber-950 px-3 py-2 text-sm text-amber-200">
+            A sala atual será encerrada e o QR Code antigo para de funcionar. Os convidados entram de novo pelo QR novo.
+          </p>
+        )}
+        {error && <p className="text-sm text-red-400">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className={button} onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950 disabled:opacity-50" disabled={busy}>
+            {replacing ? "Encerrar a atual e abrir" : "Abrir sala"}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -132,13 +178,16 @@ function Room({ room }: { room: ActiveRoom }) {
 
   return (
     <>
-      <section className="rounded-xl bg-zinc-900 p-4">
-        <p className="text-sm text-zinc-400">{room.name ?? "Sala aberta"}</p>
-        <p className="text-3xl font-bold tracking-widest">{room.code}</p>
-        <p className="text-sm text-zinc-400">
-          Os convidados entram pelo QR da TV ou em <span className="text-zinc-200">{room.join_path}</span>
-          {!live.connected && " · reconectando…"}
-        </p>
+      <section className="flex flex-wrap items-start justify-between gap-4 rounded-xl bg-zinc-900 p-4">
+        <div>
+          <p className="text-sm text-zinc-400">{room.name ?? "Sala aberta"}</p>
+          <p className="text-3xl font-bold tracking-widest">{room.code}</p>
+          <p className="text-sm text-zinc-400">
+            Os convidados entram pelo QR da TV ou em <span className="text-zinc-200">{room.join_path}</span>
+            {!live.connected && " · reconectando…"}
+          </p>
+        </div>
+        <OpenRoomButton replacing />
       </section>
 
       <section className="flex flex-col gap-3 rounded-xl bg-zinc-900 p-4">

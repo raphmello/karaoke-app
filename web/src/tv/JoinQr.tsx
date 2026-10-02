@@ -10,7 +10,7 @@ export function joinUrl(room: ActiveRoom): { url: string; unreachable: boolean }
   return { url: `${origin}${room.join_path}`, unreachable: local && !room.public_base_url };
 }
 
-export function JoinQr({ room, size }: { room: ActiveRoom; size: number }) {
+export function JoinQr({ room, size, caption }: { room: ActiveRoom; size: number; caption?: string }) {
   const { url, unreachable } = joinUrl(room);
   const [image, setImage] = useState<string | null>(null);
   useEffect(() => {
@@ -19,6 +19,7 @@ export function JoinQr({ room, size }: { room: ActiveRoom; size: number }) {
 
   return (
     <div className="flex flex-col items-center gap-2 text-center">
+      {caption && <p className="max-w-[12rem] text-sm font-semibold text-amber-300">{caption}</p>}
       {image && <img src={image} alt={`QR Code para ${url}`} width={size} height={size} className="rounded-lg" />}
       <p className="text-sm text-zinc-400">
         Sala <span className="font-bold tracking-widest text-zinc-100">{room.code}</span>
