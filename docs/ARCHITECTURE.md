@@ -45,7 +45,7 @@ As escolhas priorizam um único PC com GPU, sem custo recorrente e sem reprocess
 | 8 | Mudança de tom | Em tempo real, no navegador da TV: Rubber Band compilada para WebAssembly, num AudioWorklet, com o motor R3. O servidor guarda só o tom original | Troca imediata e limpa, de meio em meio tom, sem processar nem guardar uma versão por tom; o R3 soou natural de ouvido e usa ~17% de um núcleo |
 | 9 | Sincronização | Com letra sincronizada, o LRC dá o tempo de cada linha, ajustado ao áudio, e o Whisper alinha as palavras dentro de cada linha, sobre a voz isolada | Nenhuma linha fica segundos fora do lugar; foi a única abordagem aprovada de ouvido no spike da fase 0 |
 | 10 | Execução | Docker Compose com GPU via WSL2 | Isola CUDA, ffmpeg, Rubber Band e Deno; um comando sobe tudo |
-| 11 | Acesso remoto | Cloudflare Tunnel como preferido, com decisão final só na fase 2 (adiada); Tailscale para administrar o PC | Convidados não instalam nada; downloads continuam saindo do IP de casa |
+| 11 | Acesso remoto | Cloudflare Tunnel nomeado, com domínio próprio na Cloudflare; Tailscale só para administrar o PC | Convidados não instalam nada; downloads continuam saindo do IP de casa |
 | 12 | Letra ausente | Perguntar ao dono antes de baixar qualquer coisa | Nada pesado roda para uma música que ninguém quer transcrever |
 | 13 | Remoção de músicas | Sempre lógica: `status = removed`, arquivos mantidos e eventos em `song_events` | Nada some; a remoção pode ser desfeita sem reprocessar, e fica o histórico de quem recusou ou removeu, e quando |
 
@@ -269,7 +269,7 @@ Convidados entram pelo QR Code sem criar conta. O servidor dá a cada celular um
 **Como alguém entra**
 
 1. O host abre `/host`, entra com o PIN definido no `.env` e abre a sala da noite.
-2. A TV abre `/tv`, entra com o PIN do host na primeira vez (fica com o cookie de host, como a tela `/host`) e mostra o QR com `<origem>/j/<código da sala>`. A origem é a URL pela qual a TV foi aberta; se for `localhost`, usa `PUBLIC_BASE_URL` (IP da rede local ou domínio do túnel).
+2. A TV abre `/tv`, entra com o PIN do host na primeira vez (fica com o cookie de host, como a tela `/host`) e mostra o QR com `<origem>/j/<código da sala>`. A origem é o `PUBLIC_BASE_URL`, quando definido (domínio do túnel ou IP da rede local), seja qual for o endereço pelo qual a TV foi aberta: assim o QR serve tanto para quem está em casa quanto para quem está fora. Sem ele, vale a URL da TV.
 3. O celular abre o link, informa um apelido e chama `POST /api/rooms/{code}/join`.
 4. O servidor gera um token aleatório de 32 bytes, guarda só o hash em `guests` e devolve o token num cookie `HttpOnly` e `SameSite=Lax` (mais `Secure` quando via HTTPS).
 5. Toda ação do celular leva o cookie. O servidor descobre o `guest_id` por ele e checa a permissão. IDs de dono enviados pelo cliente nunca são confiados.
@@ -358,6 +358,7 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `GET /api/disk` | Host | Painel de disco: espaço livre do volume, tamanho das músicas e aviso quando estiver acabando |
 | `GET /media/{video_id}/...` | TV | Áudio e letra, servidos pelo Caddy com Range |
 | `POST /internal/events` | Worker | Progresso dos jobs. Não é exposto pelo Caddy |
+| `GET /internal/media-auth` | Caddy | Confere, antes de servir `/media` (`forward_auth`), se o pedido traz o cookie do host ou de um convidado de sala aberta. Não é exposto pelo Caddy |
 
 **WebSocket** em `/ws/rooms/{code}`, autenticado pelo mesmo cookie:
 
@@ -396,15 +397,15 @@ O volume `karaoke-data` é montado na API e no worker com escrita, e no Caddy s�
 - Desenvolvimento: `pnpm dev` fora do Docker, com proxy para a API, que roda com recarga automática.
 - Sem HTTPS na rede local o celular não instala o app como PWA, mas o site funciona normalmente.
 
-**Fase 2: acesso de qualquer lugar (adiada)**
+**Fase 2: acesso de qualquer lugar**
 
-A fase 2 não será executada agora. Cloudflare Tunnel é a opção preferida; a escolha final entre ele e o Tailscale Funnel fica para quando a fase começar.
+Cloudflare Tunnel nomeado, com um domínio gerenciado na Cloudflare. O túnel é criado no painel da Cloudflare, com o hostname público apontando para `http://caddy:8080`, e o token dele vai no `.env` (`CLOUDFLARE_TUNNEL_TOKEN`).
 
-- `docker compose --profile remote up -d` liga o `cloudflared`, que publica `https://karaoke.<seu-domínio>` sem abrir portas no roteador. Requer um domínio gerenciado na Cloudflare.
-- Alternativa sem domínio: Tailscale Funnel, que dá uma URL pública `*.ts.net`.
+- `docker compose --profile remote up -d` liga o `cloudflared`, que publica `https://karaoke.<seu-domínio>` sem abrir portas no roteador. A rede local continua funcionando como antes.
+- O Caddy confia nos cabeçalhos do `cloudflared` (que chega pela rede interna do Docker), para a API saber que a conexão original é HTTPS.
 - O Tailscale comum fica só para você administrar o PC, porque os celulares dos convidados não estão na sua rede Tailscale.
 - `PUBLIC_BASE_URL` passa a ser o domínio. Com HTTPS, o cookie ganha `Secure` e o PWA passa a funcionar.
-- Proteção: PIN do host forte com limite de tentativas, limite de buscas por convidado, `/media` exigindo cookie de sala válido (`forward_auth` do Caddy na API) e `/internal` nunca exposto.
+- Proteção: PIN do host forte com limite de tentativas (5 erradas do mesmo endereço em 10 minutos bloqueiam o login dele por 10 minutos), `/media` exigindo cookie de sala válido (`forward_auth` do Caddy em `/internal/media-auth`) e sem cache da Cloudflare (`Cache-Control: private`), e `/internal` nunca exposto. O limite de buscas e prévias por convidado fica para depois.
 - PC sempre pronto: suspensão desativada no plano de energia, Docker Desktop iniciando com o Windows e containers com `restart: unless-stopped`.
 
 ## Riscos e mitigações
@@ -449,12 +450,13 @@ Sete fases, cada uma com um critério de pronto verificável. A fase 0 vem antes
 5. **Acabamento:** concluída em 2 de outubro de 2026. Acervo, troca de letra e reprocessamento pelo host, painel de jobs e de disco, tela entre músicas.
     - Pronto quando: uma noite inteira roda sem precisar abrir o terminal.
     - Verificado: uma música que falhou no download voltou pelo "Tentar de novo" do painel; a tela entre músicas mostrou o próximo cantor e começou sozinha depois de 5 s; o host mudou a voz guia e o atraso da TV, trocou letras, reprocessou etapas e removeu e restaurou músicas pelo `/host`. As confirmações são feitas na própria página, porque navegadores embutidos respondem "cancelar" a `window.confirm()` sem mostrar nada.
-6. **Acesso remoto (adiada; não será executada agora):** perfil `remote` com Cloudflare Tunnel, HTTPS, proteção de `/media` e limites de uso.
+6. **Acesso remoto:** concluída em 2 de outubro de 2026. Perfil `remote` com Cloudflare Tunnel, HTTPS, QR com o endereço público, proteção de `/media` e limite de tentativas de PIN.
     - Pronto quando: um celular no 4G entra pelo QR e canta, e o QR de uma sala antiga não funciona.
+    - Verificado: um celular no 5G entrou por `https://karaoke.raphaelmello.dev`; pelo túnel, um convidado entrou pelo link do QR, buscou, adicionou, ouviu a prévia e acompanhou a fila pelo WebSocket, e os QR de salas antigas responderam "Sala não encontrada ou encerrada". Só um conector pode atender o túnel: um `cloudflared` instalado também como serviço do Windows, que não enxerga `caddy:8080`, causava "Bad Gateway" intermitente.
 
 ## Questões em aberto
 
-Todas foram respondidas, exceto a escolha do túnel, que fica para quando a fase 2 começar.
+Todas foram respondidas. O túnel escolhido foi o Cloudflare Tunnel nomeado, com domínio próprio.
 
 - [x] Ordem da fila: chegada pura, ou rodízio por cantor, em que ninguém canta duas vezes antes de todos cantarem uma? Decisão: chegada pura.
 - [x] Limite de músicas pendentes por convidado? Decisão: sem limite.
