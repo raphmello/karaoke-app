@@ -92,8 +92,7 @@ export function PlayerScreen({
       .then(async () => {
         if (cancelled) return;
         setLoaded(true);
-        await engine.play();
-        setPlaying(true);
+        setPlaying(await engine.play());
       })
       .catch((error: Error) => !cancelled && setLoadError(error.message));
     return () => {
@@ -113,6 +112,8 @@ export function PlayerScreen({
         return;
       }
       setClock({ position: engine.position(), lyrics: engine.lyricsTime(delayRef.current / 1000) });
+      setPlaying(engine.playing); // the engine pauses by itself when the phone suspends the audio
+
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
@@ -129,8 +130,7 @@ export function PlayerScreen({
 
   const togglePlay = async (play = !engine.playing) => {
     if (play) {
-      await engine.play();
-      setPlaying(true);
+      setPlaying(await engine.play());
     } else {
       engine.pause();
       setPlaying(false);
