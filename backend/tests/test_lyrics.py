@@ -1,4 +1,12 @@
-from karaoke.pipeline.lyrics import choose, fits_video, guess_artist_track, parse_lrc
+from karaoke.pipeline.lyrics import (
+    artist_and_track,
+    choose,
+    fits_video,
+    guess_artist_track,
+    match_lyrics,
+    parse_lrc,
+    same_name,
+)
 
 
 def test_parse_lrc_keeps_empty_lines_and_repeated_stamps():
@@ -52,3 +60,37 @@ def test_synced_lyrics_without_duration_must_fit_the_video():
 def test_choose_rejects_other_versions_of_the_song():
     assert choose([candidate(True, 260)], 200) is None
     assert choose([], 200) is None
+
+
+def test_a_track_artist_title_is_read_the_right_way_by_the_channel():
+    meta = {"title": "In The End [Official HD Music Video] - Linkin Park", "channel": "Linkin Park"}
+    assert guess_artist_track(meta) == ("Linkin Park", "In The End")
+
+
+def test_the_usual_order_stays_when_the_channel_is_someone_else():
+    meta = {"title": "Linkin Park - In the End (Lyrics)", "channel": "Taj Tracks"}
+    assert guess_artist_track(meta) == ("Linkin Park", "In the End")
+
+
+def test_the_lyrics_found_correct_a_reversed_guess():
+    found = {"artist": "[LINKIN PARK]", "track": "In The End"}
+    assert match_lyrics("In The End", "Linkin Park", found) == ("Linkin Park", "In The End")
+    assert match_lyrics("Linkin Park", "In The End", found) == ("Linkin Park", "In The End")
+    assert match_lyrics("Linkin Park", "In The End", None) == ("Linkin Park", "In The End")
+
+
+def test_names_compare_without_case_spaces_or_punctuation():
+    assert same_name("[LINKIN PARK]", "Linkin Park")
+    assert not same_name("", "")
+    assert not same_name("Legião Urbana", "Legiao Urbana")  # accents count: no false matches across languages
+
+
+def test_the_channel_outranks_lyrics_filed_the_wrong_way_round():
+    meta = {"title": "In The End [Official HD Music Video] - Linkin Park", "channel": "Linkin Park"}
+    reversed_on_lrclib = {"artist": "In The End", "track": "Linkin Park"}
+    assert artist_and_track(meta, reversed_on_lrclib) == ("Linkin Park", "In The End")
+
+
+def test_without_the_channel_the_lyrics_decide():
+    meta = {"title": "In The End - Linkin Park", "channel": "Some Uploader"}
+    assert artist_and_track(meta, {"artist": "Linkin Park", "track": "In The End"}) == ("Linkin Park", "In The End")

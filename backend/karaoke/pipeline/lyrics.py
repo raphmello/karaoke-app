@@ -54,9 +54,44 @@ def guess_artist_track(meta: dict) -> tuple[str, str]:
     # "Artist - Track - Video Oficial": the parts after the track that only say what kind of video it is go
     while len(parts) > 2 and NOISE_WORDS.search(parts[-1]):
         parts.pop()
+    channel = channel_name(meta)
     if len(parts) > 1:
-        return parts[0].strip(), " - ".join(parts[1:]).strip()
-    return CHANNEL_NOISE.sub("", meta.get("channel") or "").strip(), parts[0].strip()
+        first, rest = parts[0].strip(), " - ".join(parts[1:]).strip()
+        # "Track - Artist" titles exist too ("In The End [Official HD Music Video] - Linkin Park"): the part that
+        # is the channel's name is the artist.
+        if same_name(rest, channel) and not same_name(first, channel):
+            return rest, first
+        return first, rest
+    return channel, parts[0].strip()
+
+
+def channel_name(meta: dict) -> str:
+    return CHANNEL_NOISE.sub("", meta.get("channel") or "").strip()
+
+
+def same_name(a: str | None, b: str | None) -> bool:
+    """Names equal once case, spaces and punctuation are ignored (accents still count): "[LINKIN PARK]" is
+    "Linkin Park"."""
+    def key(name: str | None) -> str:
+        return "".join(ch for ch in (name or "").casefold() if ch.isalnum())
+
+    return bool(key(a)) and key(a) == key(b)
+
+
+def artist_and_track(meta: dict, lyrics: dict | None) -> tuple[str, str]:
+    """The guess from the title; when the channel doesn't vouch for the artist, the lyrics found may correct it."""
+    artist, track = guess_artist_track(meta)
+    if same_name(artist, channel_name(meta)) or (meta.get("track") and meta.get("artist")):
+        return artist, track
+    return match_lyrics(artist, track, lyrics)
+
+
+def match_lyrics(artist: str, track: str, lyrics: dict | None) -> tuple[str, str]:
+    """The lyrics found tell who sings: when their artist and track are ours swapped, the guess had them reversed.
+    Only a second opinion: LRCLIB has entries filed the wrong way round too (In the End is one)."""
+    if lyrics and same_name(lyrics.get("artist"), track) and same_name(lyrics.get("track"), artist):
+        return track, artist
+    return artist, track
 
 
 def _candidate(record: dict, origin: str) -> dict | None:
@@ -153,7 +188,7 @@ def find(meta: dict) -> dict | None:
 def run(ctx) -> dict:
     meta = ctx.manifest.info("metadata")
     lyrics = find(meta)
-    artist, track = guess_artist_track(meta)
+    artist, track = artist_and_track(meta, lyrics)
     if not lyrics:
         return {"found": False, "artist": artist, "track": track}
     write_json(ctx.folder.lyrics_source, lyrics)
