@@ -272,7 +272,7 @@ Convidados entram pelo QR Code sem criar conta. O servidor dá a cada celular um
 
 1. O host abre `/host`, entra com o PIN definido no `.env` e abre a sala da noite.
 2. A TV abre `/tv`, entra com o PIN do host na primeira vez (fica com o cookie de host, como a tela `/host`) e mostra o QR com `<origem>/j/<código da sala>`. A origem é o `PUBLIC_BASE_URL`, quando definido (domínio do túnel ou IP da rede local), seja qual for o endereço pelo qual a TV foi aberta: assim o QR serve tanto para quem está em casa quanto para quem está fora. Sem ele, vale a URL da TV.
-3. O celular abre o link, informa um apelido e chama `POST /api/rooms/{code}/join`.
+3. O celular abre o link e escolhe como entrar. **Convidado:** informa um apelido e chama `POST /api/rooms/{code}/join`. **Admin:** digita o PIN (`POST /api/host/login`) e vai para a tela do host. As telas de PIN não dizem onde o PIN fica guardado.
 4. O servidor gera um token aleatório de 32 bytes, guarda só o hash em `guests` e devolve o token num cookie `HttpOnly` e `SameSite=Lax` (mais `Secure` quando via HTTPS).
 5. Toda ação do celular leva o cookie. O servidor descobre o `guest_id` por ele e checa a permissão. IDs de dono enviados pelo cliente nunca são confiados.
 
