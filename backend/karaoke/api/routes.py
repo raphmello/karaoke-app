@@ -236,6 +236,7 @@ def add(request: Request, db: Sessions, settings: AppSettings, code: str, body: 
             guest_id=actor.owner_id,
             singer_name=body.singer_name or nickname,
             semitones=body.semitones,
+            known=request.app.state.search.find(body.video_id),
         )
         out = QueueEntryOut.of(entry, session.get(Song, entry.video_id), nickname, actor)
     notify(hub(request).queue_changed, room.id)

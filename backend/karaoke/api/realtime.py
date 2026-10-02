@@ -114,7 +114,8 @@ class Hub:
             await self.lyrics_missing(event["video_id"], event.get("entries") or [])
         else:
             await self.send_everywhere(event)
-        if kind in ("song.ready", "song.failed", "song.lyrics_missing"):
+        # Progress also refreshes the queue: the song's title and artist arrive with the first stages.
+        if kind in ("song.progress", "song.ready", "song.failed", "song.lyrics_missing"):
             await self.queue_changed()
 
     async def tv_state(self, room_id: int, message: dict) -> None:

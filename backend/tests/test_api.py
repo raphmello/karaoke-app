@@ -222,3 +222,13 @@ def test_the_worker_reports_events(client):
     response = client.post("/internal/events", json={"type": "song.progress", "video_id": VIDEO, "stage": "lyrics",
                                                      "progress": 14})
     assert response.status_code == 204
+
+
+def test_a_song_added_from_the_search_starts_with_its_title(app, client, db):
+    code = open_room(host(client))
+    phone = guest(app, code)
+    phone.get("/api/search", params={"q": "rick"})
+    entry = phone.post(f"/api/rooms/{code}/queue", json={"video_id": VIDEO}).json()
+    assert entry["song"]["status"] == "pending"
+    assert (entry["song"]["title"], entry["song"]["channel"]) == ("Never Gonna Give You Up", "Rick Astley")
+    assert entry["song"]["thumbnail_url"].endswith("/hqdefault.jpg")

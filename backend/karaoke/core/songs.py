@@ -54,12 +54,17 @@ def add_to_queue(
     guest_id: str | None,
     singer_name: str | None,
     semitones: int = 0,
+    known: dict | None = None,
 ) -> QueueEntry:
-    """A new entry every time (repeats are allowed); what it triggers depends on the song's state."""
+    """A new entry every time (repeats are allowed); what it triggers depends on the song's state. `known` is what
+    a search already told about the video (title, channel, duration, thumbnail): a new song starts with it instead
+    of showing only its id until the pipeline's metadata stage."""
     by = guest_id or HOST
+    known = known or {}
+    shown = {k: known[k] for k in ("title", "channel", "duration_s", "thumbnail_url") if known.get(k)}
     # Only the transaction that inserts the song creates its job (INSERT ... ON CONFLICT DO NOTHING).
     inserted = session.execute(
-        insert(Song).values(video_id=video_id, status=PENDING).on_conflict_do_nothing()
+        insert(Song).values(video_id=video_id, status=PENDING, **shown).on_conflict_do_nothing()
     ).rowcount == 1
     song = session.get(Song, video_id)
     if inserted:

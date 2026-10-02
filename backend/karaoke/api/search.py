@@ -40,6 +40,12 @@ class CachedSearch:
         self._cache: dict[str, tuple[float, list[dict]]] = {}
         self._lock = threading.Lock()
 
+    def find(self, video_id: str) -> dict | None:
+        """A video from a recent search, so a song added from the results starts with its title and thumbnail."""
+        with self._lock:
+            entries = list(self._cache.values())
+        return next((r for _, results in entries for r in results if r["video_id"] == video_id), None)
+
     def __call__(self, query: str) -> list[dict]:
         key = " ".join(query.lower().split())
         now = time.monotonic()

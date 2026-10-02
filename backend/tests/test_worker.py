@@ -176,3 +176,22 @@ def test_a_job_left_running_by_a_dead_worker_goes_back_to_the_queue(db, settings
     assert get(db, Job, job.id).status == JOB_PENDING and get(db, Song, A).status == PENDING
     with db() as session:
         assert session.scalars(select(Job.id).where(Job.status == JOB_PENDING)).all() == [job.id]
+
+
+def test_the_title_reaches_the_database_while_the_job_still_runs(db, settings, room):
+    add(db, settings, room, A)
+    seen = {}
+
+    class Watching(Pipeline):
+        def stages(self):
+            stages = super().stages()
+
+            def peek(ctx):
+                seen["title"] = get(db, Song, A).title  # what the screens show during the separation
+                return {}
+
+            return [Stage(s.name, peek, s.stop) if s.name == "separation" else s for s in stages]
+
+    work, _ = worker(settings, db, Watching())
+    work.run(stop_when_idle=True)
+    assert seen["title"] == "Artista - Música"

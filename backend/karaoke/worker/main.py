@@ -119,7 +119,9 @@ class Worker:
             with transaction(self.factory) as session:
                 row = session.get(Job, job.id)
                 row.stage, row.progress = name, progress
-                session.get(Song, job.video_id).stage = name
+                song = session.get(Song, job.video_id)
+                song.stage = name
+                sync_from_manifest(song, self.settings)  # title and artist show up as soon as the metadata stage ends
             self.notify({"type": "song.progress", "video_id": job.video_id, "stage": name,
                          "progress": round(progress * 100)})
 
