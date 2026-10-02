@@ -311,7 +311,7 @@ A TV é dona da reprodução. Ela toca os dois stems com a Web Audio API, desenh
 **Letra**
 
 - Relógio: `t = ctx.currentTime − início − atraso`, recalculado a cada quadro com `requestAnimationFrame`. O `atraso` soma `ctx.outputLatency` e um ajuste manual, porque caixas Bluetooth atrasam o som.
-- Tela: linha atual grande e a próxima menor, abaixo.
+- Tela, como um teleprompter: todas as linhas do mesmo tamanho; a atual numa altura fixa e destacada, a que acabou de ser cantada acima e as duas próximas abaixo, esmaecidas. Na troca de linha, a lista inteira sobe suavemente, em vez de pular.
 - A linha aparece até 1 s antes de ser cantada, assim que a anterior termina, para dar tempo de ler.
 - Cada palavra se preenche da esquerda para a direita na proporção `(t − s) / (e − s)`, o efeito clássico de karaokê.
 - Antes de uma linha que vem depois de 3 s ou mais sem canto, aparece uma contagem regressiva (● ● ●).
