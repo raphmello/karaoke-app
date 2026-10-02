@@ -113,7 +113,7 @@ As telas falam só com o Caddy. O worker pega jobs no SQLite por prioridade, gra
 karaoke-app/
 ├── compose.yaml
 ├── .env.example
-├── docker/            api.Dockerfile, worker.Dockerfile, Caddyfile
+├── docker/            api.Dockerfile, worker.Dockerfile, caddy.Dockerfile, Caddyfile
 ├── backend/           pacote Python (uv)
 │   ├── karaoke/
 │   │   ├── api/       rotas REST e WebSocket
@@ -268,7 +268,7 @@ Convidados entram pelo QR Code sem criar conta. O servidor dá a cada celular um
 **Como alguém entra**
 
 1. O host abre `/host`, entra com o PIN definido no `.env` e abre a sala da noite.
-2. A TV abre `/tv` e mostra o QR com `<origem>/j/<código da sala>`. A origem é a URL pela qual a TV foi aberta; se for `localhost`, usa `PUBLIC_BASE_URL` (IP da rede local ou domínio do túnel).
+2. A TV abre `/tv`, entra com o PIN do host na primeira vez (fica com o cookie de host, como a tela `/host`) e mostra o QR com `<origem>/j/<código da sala>`. A origem é a URL pela qual a TV foi aberta; se for `localhost`, usa `PUBLIC_BASE_URL` (IP da rede local ou domínio do túnel).
 3. O celular abre o link, informa um apelido e chama `POST /api/rooms/{code}/join`.
 4. O servidor gera um token aleatório de 32 bytes, guarda só o hash em `guests` e devolve o token num cookie `HttpOnly` e `SameSite=Lax` (mais `Secure` quando via HTTPS).
 5. Toda ação do celular leva o cookie. O servidor descobre o `guest_id` por ele e checa a permissão. IDs de dono enviados pelo cliente nunca são confiados.
@@ -373,7 +373,7 @@ Tudo roda em Docker Compose no seu PC, e só o Caddy fica exposto. O acesso remo
 
 | Serviço | Base | Exposição | Observação |
 | --- | --- | --- | --- |
-| `caddy` | `caddy:2` | Porta 8080 do PC | Serve o frontend e `/media`; faz proxy de `/api` e `/ws` |
+| `caddy` | `caddy:2`, com o `web/` compilado na imagem (`caddy.Dockerfile`; Node e pnpm só no build) | Porta 8080 do PC | Serve o frontend e `/media`; faz proxy de `/api` e `/ws` |
 | `api` | `python:3.12-slim` | Interna | Sem PyTorch, imagem leve |
 | `worker` | Imagem PyTorch com CUDA, ffmpeg e Deno | Nenhuma | `gpus: all`; um job por vez |
 | `cloudflared` | `cloudflare/cloudflared` | Nenhuma | Só no perfil `remote` |
@@ -433,8 +433,9 @@ Sete fases, cada uma com um critério de pronto verificável. A fase 0 vem antes
 2. **API, banco e worker:** concluída em 1º de outubro de 2026. Tabelas, jobs com prioridade, busca, rotas de música e Compose com GPU.
     - Pronto quando: adicionar o mesmo vídeo cinco vezes ao mesmo tempo gera um único job.
     - Verificado: cinco celulares adicionaram o mesmo vídeo novo ao mesmo tempo, pelo Caddy, e nasceram cinco entradas e um único job; o worker processou a música na GPU em ~107 s. Remover e alterar entradas, a resposta sobre a transcrição e o WebSocket ficam na fase 4; as rotas do host para músicas, na fase 5.
-3. **Player da TV:** dois stems na Web Audio API, letra palavra por palavra, voz guia, atraso e tom em tempo real (−½, +½ e voltar ao original, com o tom atual visível).
+3. **Player da TV:** concluída em 1º de outubro de 2026. Dois stems na Web Audio API, letra palavra por palavra, voz guia, atraso e tom em tempo real (−½, +½ e voltar ao original, com o tom atual visível).
     - Pronto quando: uma música inteira toca com a letra em sincronia, e o tom muda ao vivo, de meio em meio tom, sem cortar o áudio nem dessincronizar a letra.
+    - Verificado: aprovado de ouvido, com músicas inteiras tocando em sincronia e o tom mudando ao vivo (de Mi menor a Fá♯ menor e de volta) sem corte. Nesta fase a TV escolhe a música no acervo; a fila entra na fase 4.
 4. **Fila, sala, QR e permissões:** tela do celular, convidados, WebSocket e testes da matriz.
     - Pronto quando: dois celulares usam a fila, e um não consegue remover a música do outro. Uma música sem letra pergunta ao dono, e um "não" tira a entrada da fila sem baixar nada.
 5. **Acabamento:** acervo, troca de letra e reprocessamento pelo host, painel de jobs e de disco, tela entre músicas.
