@@ -327,7 +327,7 @@ A TV é dona da reprodução. Ela toca os dois stems com a Web Audio API, desenh
 - O tom pode já vir escolhido do celular, ao adicionar a música; é o tom em que ela começa.
 - A Rubber Band muda o tom sem mudar a duração, então os tempos da letra continuam válidos em qualquer tom. O atraso do próprio processamento (~77 ms com o R3) entra no `atraso` do relógio da letra.
 
-**Entre músicas**, a TV mostra o próximo cantor, a música, o tom e o QR Code, e a próxima começa sozinha depois de uma contagem curta. O host pode pausar ou pular. Se a próxima ainda estiver processando, a contagem espera ela ficar pronta; entradas aguardando a decisão de transcrever são puladas.
+**Entre músicas**, a TV mostra o próximo cantor, a música, o tom e o QR Code, e a próxima começa sozinha depois de uma contagem de 5 s. O host pode pausar ou pular. Se a próxima ainda estiver processando, a contagem espera ela ficar pronta; entradas aguardando a decisão de transcrever são puladas.
 
 ## API REST e eventos em tempo real
 
@@ -343,16 +343,18 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `DELETE /api/rooms/{code}/queue/{id}` | Dono ou host | Remove a entrada (remoção lógica) |
 | `POST /api/rooms/{code}/queue/{id}/transcription` | Dono ou host | Responde à pergunta: `{"accept": true}` transcreve; `false` remove a entrada |
 | `GET /api/songs/{video_id}` | Convidado | Status, metadados, tom original e URLs de mídia |
-| `GET /api/library?q=` | Convidado | Acervo de músicas prontas; removidas ficam de fora |
+| `GET /api/library?q=` | Convidado | Acervo de músicas prontas; removidas ficam de fora. Com `removed=true` (só o host), lista as removidas, para desfazer a remoção |
 | `POST /api/host/login` | Qualquer um | Troca o PIN por um cookie de host |
 | `POST /api/rooms` | Host | Abre a sala da noite e gera o código |
 | `GET /api/rooms/active` | Host | Sala ativa: código, nome e a origem pública do QR (`PUBLIC_BASE_URL`). A TV usa para achar a fila e montar o QR |
-| `POST /api/rooms/{code}/player/{ação}` | Host | play, pause ou skip |
+| `POST /api/rooms/{code}/player/{ação}` | Host | play, pause, skip, ou `guide` e `delay` com `{"value": ...}` (voz guia de 0 a 100% e atraso da TV em ms) |
 | `PUT /api/songs/{video_id}/lyrics` | Host | Troca a letra e realinha |
 | `POST /api/songs/{video_id}/reprocess` | Host | Reprocessa as etapas escolhidas |
 | `DELETE /api/songs/{video_id}` | Host | Marca a música como removida; registro, arquivos e histórico ficam |
 | `POST /api/songs/{video_id}/restore` | Host | Desfaz a remoção usando os arquivos guardados, sem reprocessar |
 | `GET /api/songs/{video_id}/history` | Host | Eventos da música em `song_events` |
+| `GET /api/jobs` | Host | Painel de jobs: os recentes, com música, etapa, progresso, tentativas e erro |
+| `GET /api/disk` | Host | Painel de disco: espaço livre do volume, tamanho das músicas e aviso quando estiver acabando |
 | `GET /media/{video_id}/...` | TV | Áudio e letra, servidos pelo Caddy com Range |
 | `POST /internal/events` | Worker | Progresso dos jobs. Não é exposto pelo Caddy |
 
@@ -441,8 +443,9 @@ Sete fases, cada uma com um critério de pronto verificável. A fase 0 vem antes
 4. **Fila, sala, QR e permissões:** concluída em 1º de outubro de 2026. Tela do celular, convidados, WebSocket e testes da matriz.
     - Pronto quando: dois celulares usam a fila, e um não consegue remover a música do outro. Uma música sem letra pergunta ao dono, e um "não" tira a entrada da fila sem baixar nada.
     - Verificado: o segundo celular recebeu 403 ao remover, mudar o tom e pular a música do primeiro; uma música sem letra perguntou só ao dono, e o "não" a tirou da fila sem baixar nada (na pasta, só `manifest.json` e `thumb.jpg`). A TV toca a fila sozinha e mostra o QR; o tom mudado no celular chega ao vivo à TV. Uma tela `/host` mínima abre a sala e controla fila e player.
-5. **Acabamento:** acervo, troca de letra e reprocessamento pelo host, painel de jobs e de disco, tela entre músicas.
+5. **Acabamento:** concluída em 2 de outubro de 2026. Acervo, troca de letra e reprocessamento pelo host, painel de jobs e de disco, tela entre músicas.
     - Pronto quando: uma noite inteira roda sem precisar abrir o terminal.
+    - Verificado: uma música que falhou no download voltou pelo "Tentar de novo" do painel; a tela entre músicas mostrou o próximo cantor e começou sozinha depois de 5 s; o host mudou a voz guia e o atraso da TV, trocou letras, reprocessou etapas e removeu e restaurou músicas pelo `/host`. As confirmações são feitas na própria página, porque navegadores embutidos respondem "cancelar" a `window.confirm()` sem mostrar nada.
 6. **Acesso remoto (adiada; não será executada agora):** perfil `remote` com Cloudflare Tunnel, HTTPS, proteção de `/media` e limites de uso.
     - Pronto quando: um celular no 4G entra pelo QR e canta, e o QR de uma sala antiga não funciona.
 
