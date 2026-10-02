@@ -7,6 +7,7 @@ import { clampSemitones, MAX_SEMITONES, MIN_SEMITONES, signed } from "../lib/key
 import { songTitle } from "../lib/queue";
 import { loadNickname } from "../phone/identity";
 import { formatTime } from "../tv/time";
+import { Preview } from "./Preview";
 
 export function Search({ code, onAdded }: { code: string; onAdded: (title: string) => void }) {
   const [text, setText] = useState("");
@@ -51,6 +52,9 @@ export function Search({ code, onAdded }: { code: string; onAdded: (title: strin
                 {result.in_library && <span className="text-xs text-emerald-400">Toca na hora</span>}
               </span>
             </button>
+            <div className="mt-2 flex">
+              <Preview videoId={result.video_id} local={result.in_library} />
+            </div>
             {picked?.video_id === result.video_id && <AddForm code={code} result={result} onAdded={onAdded} />}
           </li>
         ))}
@@ -89,6 +93,9 @@ export function Library({ code, onAdded }: { code: string; onAdded: (title: stri
                 </span>
               </span>
             </button>
+            <div className="mt-2 flex">
+              <Preview videoId={song.video_id} local />
+            </div>
             {picked === song.video_id && (
               <AddForm code={code} result={{ video_id: song.video_id, title: songTitle(song) }} onAdded={onAdded} />
             )}

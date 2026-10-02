@@ -14,6 +14,7 @@ from typing import Annotated
 
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -112,6 +113,21 @@ def song(request: Request, db: Sessions, video_id: str) -> SongOut:
         if row is None:
             raise HTTPException(404, "Música não encontrada.")
         return SongOut.of(row)
+
+
+@api.get("/preview/{video_id}")
+def preview(request: Request, db: Sessions, video_id: str) -> StreamingResponse:
+    """Hear a video before adding it: its audio from YouTube, passed on with Range so the player can seek."""
+    with transaction(db) as session:
+        deps.require_actor(request, session)
+    if not VIDEO_ID.match(video_id):
+        raise HTTPException(404, "Vídeo não encontrado.")
+    try:
+        upstream = request.app.state.preview.open(video_id, request.headers.get("range"))
+    except Exception as exc:  # yt-dlp or YouTube: the screen says the preview is unavailable
+        log.warning("prévia de %s falhou: %s", video_id, exc)
+        raise HTTPException(502, "Não foi possível tocar a prévia deste vídeo.") from exc
+    return StreamingResponse(upstream.body, status_code=upstream.status, headers=upstream.headers)
 
 
 @api.get("/library")

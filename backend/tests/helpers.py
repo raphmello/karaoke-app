@@ -24,20 +24,23 @@ class Caller:
     def __init__(self, client: TestClient, cookie: str):
         self.client, self.headers = client, {"cookie": cookie}
 
+    def _call(self, method, path, headers=None, **kw):
+        return self.client.request(method, path, headers={**self.headers, **(headers or {})}, **kw)
+
     def get(self, path, **kw):
-        return self.client.get(path, headers=self.headers, **kw)
+        return self._call("GET", path, **kw)
 
     def post(self, path, **kw):
-        return self.client.post(path, headers=self.headers, **kw)
-
-    def patch(self, path, **kw):
-        return self.client.patch(path, headers=self.headers, **kw)
+        return self._call("POST", path, **kw)
 
     def put(self, path, **kw):
-        return self.client.put(path, headers=self.headers, **kw)
+        return self._call("PUT", path, **kw)
+
+    def patch(self, path, **kw):
+        return self._call("PATCH", path, **kw)
 
     def delete(self, path, **kw):
-        return self.client.delete(path, headers=self.headers, **kw)
+        return self._call("DELETE", path, **kw)
 
     def websocket_connect(self, path):
         return self.client.websocket_connect(path, headers=self.headers)

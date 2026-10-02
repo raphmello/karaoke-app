@@ -1,5 +1,8 @@
-# API image: FastAPI and yt-dlp for the search, without PyTorch (docs/ARCHITECTURE.md, deployment).
+# API image: FastAPI and yt-dlp for the search and the preview, without PyTorch (docs/ARCHITECTURE.md, deployment).
 FROM python:3.12-slim
+
+# yt-dlp needs a JavaScript runtime to find a YouTube video's audio (the preview); Deno, as in the worker.
+COPY --from=denoland/deno:bin-2.9.7 /deno /usr/local/bin/deno
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV UV_PROJECT_ENVIRONMENT=/opt/venv \

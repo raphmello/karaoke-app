@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from karaoke.api.preview import PreviewSource
 from karaoke.api.realtime import Hub
 from karaoke.api.routes import api, internal, sockets
 from karaoke.api.search import CachedSearch, SearchFn, youtube_search
@@ -16,7 +17,9 @@ from karaoke.core.db import make_engine, make_sessionmaker, migrate
 log = logging.getLogger("karaoke.api")
 
 
-def create_app(settings: Settings | None = None, search: SearchFn = youtube_search) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, search: SearchFn = youtube_search, preview: PreviewSource | None = None
+) -> FastAPI:
     # uvicorn configures only its own loggers; this shows the app's (worker events, rooms opened)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("alembic").setLevel(logging.WARNING)
@@ -37,6 +40,7 @@ def create_app(settings: Settings | None = None, search: SearchFn = youtube_sear
     app.state.hub = Hub(app.state.sessions)
     app.state.host_signer = HostSigner()
     app.state.search = CachedSearch(search)
+    app.state.preview = preview or PreviewSource()
     app.include_router(api)
     app.include_router(internal)
     app.include_router(sockets)
