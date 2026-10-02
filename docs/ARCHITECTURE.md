@@ -346,7 +346,7 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `GET /api/preview/{video_id}` | Convidado | Prévia de um vídeo ainda não baixado, antes de adicioná-lo: a API acha o áudio com o yt-dlp e o repassa, com Range. Músicas do acervo tocam a prévia direto de `/media` |
 | `GET /api/library?q=` | Convidado | Acervo de músicas prontas; removidas ficam de fora. Com `removed=true` (só o host), lista as removidas, para desfazer a remoção |
 | `POST /api/host/login` | Qualquer um | Troca o PIN por um cookie de host |
-| `POST /api/rooms` | Host | Abre a sala da noite e gera o código |
+| `POST /api/rooms` | Host | Abre a sala da noite e gera o código; a anterior é encerrada. Com `{"move_queue": true}`, as entradas que esperavam passam para a sala nova, na mesma ordem, e só o host pode removê-las |
 | `GET /api/rooms/active` | Host | Sala ativa: código, nome e a origem pública do QR (`PUBLIC_BASE_URL`). A TV usa para achar a fila e montar o QR |
 | `POST /api/rooms/{code}/player/{ação}` | Host | play, pause, skip, ou `guide` e `delay` com `{"value": ...}` (voz guia de 0 a 100% e atraso da TV em ms) |
 | `PUT /api/songs/{video_id}/lyrics` | Host | Troca a letra e realinha |
@@ -371,6 +371,8 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `player.state` | TV → servidor → todos | Entrada atual, posição, pausa e tom atual, a cada segundo. Quando a TV informa outra entrada, ou nenhuma, a anterior fica `done` |
 
 Ao cair a conexão, o cliente reconecta com espera crescente e recebe um `queue.snapshot` novo.
+
+Quando o host abre outra sala, o servidor fecha as conexões da sala antiga com o código 4404 (sala encerrada). A TV termina a música que estiver tocando, com o aviso de que a sala foi encerrada e o botão para ir à nova sala, e não começa mais nada da sala antiga. Os celulares mostram que a sala foi encerrada e pedem para ler o QR novo.
 
 ## Implantação local e acesso remoto
 
