@@ -9,33 +9,65 @@ import { loadNickname } from "../phone/identity";
 import { formatTime } from "../tv/time";
 import { PreviewBar, PreviewButton, previewSources, usePreview } from "./Preview";
 
-/** A song in the results or the library: tap it to add, or the round button on the right to hear it first. */
+/** A song in the results or the library, with its two actions on the right: hear a preview, and add it to the
+ *  queue (which opens who sings and the starting key). Tapping the card also opens the add form. */
 function SongRow({
   sources,
   thumbnail,
   details,
+  picked,
   onPick,
   children,
 }: {
   sources: string[];
   thumbnail: string | null;
   details: ReactNode;
+  picked: boolean;
   onPick: () => void;
   children: ReactNode;
 }) {
   const preview = usePreview(sources);
   return (
-    <li className="rounded-xl bg-zinc-900 p-3">
-      <div className="flex items-center gap-3">
+    <li className={`rounded-xl bg-zinc-900 p-3 ${picked ? "ring-1 ring-amber-400" : ""}`}>
+      <div className="flex items-center gap-2 sm:gap-3">
         <button className="flex min-w-0 flex-1 gap-3 text-left" onClick={onPick}>
-          <img src={thumbnail ?? undefined} alt="" className="h-14 w-24 shrink-0 rounded-lg object-cover" />
+          <img src={thumbnail ?? undefined} alt="" className="h-12 w-16 shrink-0 rounded-lg object-cover sm:h-14 sm:w-24" />
           <span className="min-w-0">{details}</span>
         </button>
-        <PreviewButton preview={preview} />
+        <Labeled label={preview.state === "playing" ? "Pausar" : "Ouvir"}>
+          <PreviewButton preview={preview} />
+        </Labeled>
+        <Labeled label={picked ? "Fechar" : "Adicionar"}>
+          <button
+            type="button"
+            onClick={onPick}
+            aria-label={picked ? "Fechar sem adicionar" : "Adicionar à fila"}
+            aria-expanded={picked}
+            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
+              picked ? "bg-zinc-700 text-zinc-100" : "bg-amber-400 text-zinc-950 hover:bg-amber-300"
+            }`}
+          >
+            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+              {picked ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M12 5v14M5 12h14" />}
+            </svg>
+          </button>
+        </Labeled>
       </div>
       <PreviewBar preview={preview} />
       {children}
     </li>
+  );
+}
+
+/** A round button with its name under it, so the icon doesn't have to explain itself. */
+function Labeled({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex w-12 shrink-0 flex-col items-center gap-1 sm:w-14">
+      {children}
+      <span className="text-[11px] leading-none text-zinc-400" aria-hidden="true">
+        {label}
+      </span>
+    </div>
   );
 }
 
@@ -74,6 +106,7 @@ export function Search({ code, onAdded }: { code: string; onAdded: (title: strin
             key={result.video_id}
             sources={previewSources(result.video_id)}
             thumbnail={result.thumbnail_url}
+            picked={picked?.video_id === result.video_id}
             onPick={() => setPicked(picked?.video_id === result.video_id ? null : result)}
             details={
               <>
@@ -117,10 +150,11 @@ export function Library({ code, onAdded }: { code: string; onAdded: (title: stri
             key={song.video_id}
             sources={previewSources(song.video_id, song.media?.original)}
             thumbnail={song.thumbnail_url}
+            picked={picked === song.video_id}
             onPick={() => setPicked(picked === song.video_id ? null : song.video_id)}
             details={
               <>
-                <span className="block truncate font-semibold">{songTitle(song)}</span>
+                <span className="line-clamp-2 leading-snug font-semibold">{songTitle(song)}</span>
                 <span className="block truncate text-sm text-zinc-400">
                   {song.artist ?? song.channel}
                   {song.duration_s ? ` · ${formatTime(song.duration_s)}` : ""}

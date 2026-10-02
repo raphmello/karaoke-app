@@ -90,7 +90,7 @@ export function usePreview(sources: string[]) {
   };
 }
 
-/** A round play/pause button, at the right of a song's row. */
+/** A round button with an ear: hear a preview. While it plays, a pause button. */
 export function PreviewButton({ preview }: { preview: PreviewControl }) {
   const { state } = preview;
   const label = state === "playing" ? "Pausar a prévia" : state === "error" ? "Prévia indisponível" : "Ouvir a prévia";
@@ -101,7 +101,7 @@ export function PreviewButton({ preview }: { preview: PreviewControl }) {
       disabled={state === "loading" || state === "error"}
       aria-label={label}
       title={label}
-      className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-60 ${
+      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-60 ${
         state === "playing" ? "bg-amber-400 text-zinc-950" : "bg-zinc-800 text-amber-300 hover:bg-zinc-700"
       }`}
     >
@@ -117,8 +117,19 @@ export function PreviewButton({ preview }: { preview: PreviewControl }) {
           !
         </span>
       ) : (
-        <svg viewBox="0 0 24 24" className="ml-0.5 h-6 w-6" fill="currentColor" aria-hidden="true">
-          <path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5Z" />
+        <svg
+          viewBox="0 0 24 24"
+          className="h-6 w-6"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          {/* an ear */}
+          <path d="M6.5 9a5.5 5.5 0 0 1 11 0c0 2.6-1.4 3.8-2.6 4.9-1 .9-1.9 1.7-1.9 3.1a3 3 0 0 1-5.7 1.3" />
+          <path d="M9.5 9.2a2.5 2.5 0 0 1 5 0c0 1.1-.7 1.6-1.3 2.1" />
         </svg>
       )}
     </button>
