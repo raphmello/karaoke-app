@@ -8,6 +8,7 @@ import { AudioEngine } from "../player/engine";
 import { HostLogin } from "../room/HostLogin";
 import { type Command, useRoom } from "../room/useRoom";
 import { JoinQr } from "./JoinQr";
+import { useLook } from "./look";
 import { type PlayerReport, PlayerScreen } from "./PlayerScreen";
 
 const COUNTDOWN_S = 5; // between songs (docs/ARCHITECTURE.md, "Entre músicas")
@@ -166,6 +167,7 @@ function TvQueue({
 }) {
   const commands = useRef<((command: Command) => void) | null>(null);
   const [current, setCurrent] = useState<QueueEntry | null>(null);
+  const [look, changeLook] = useLook(room.code);
   const [semitones, setSemitones] = useState(0);
   const finished = useRef(new Set<number>()); // until the next snapshot says so, never replay what just ended
   const send = useRef<(message: object) => void>(() => undefined);
@@ -254,6 +256,8 @@ function TvQueue({
         onReport={report}
         commands={commands}
         corner={closed ? undefined : <JoinQr room={room} size={150} caption="Leia para entrar e escolher músicas" />}
+        look={look}
+        onLook={changeLook}
         banner={closed ? <ClosedBanner room={room} closed={closed} /> : undefined}
       />
     );

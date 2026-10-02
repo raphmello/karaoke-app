@@ -70,16 +70,34 @@ const Row = memo(
   (a, b) => a.line === b.line && a.role === b.role && (a.role !== "sung" || a.t === b.t),
 );
 
-export function Lyrics({ lines, t, title }: { lines: Line[] | null; t: number; title: string }) {
+// An outline around the letters: two tight dark shadows. A filter (not text-shadow or text-stroke) because the sung
+// words are painted with background-clip: text, which those would cover or break.
+const OUTLINE = "drop-shadow(0 0 1.5px rgba(0,0,0,0.95)) drop-shadow(0 0 3px rgba(0,0,0,0.85))";
+
+export function Lyrics({
+  lines,
+  t,
+  title,
+  outline = false,
+}: {
+  lines: Line[] | null;
+  t: number;
+  title: string;
+  outline?: boolean;
+}) {
   if (!lines || lines.length === 0) {
     return (
-      <div className="text-center">
+      <div className="text-center" style={{ filter: outline ? OUTLINE : undefined }}>
         <p className="text-5xl font-bold md:text-6xl">{title}</p>
         <p className="mt-6 text-3xl text-zinc-400">Instrumental</p>
       </div>
     );
   }
-  return <Teleprompter lines={lines} t={t} />;
+  return (
+    <div className="h-full w-full" style={{ filter: outline ? OUTLINE : undefined }}>
+      <Teleprompter lines={lines} t={t} />
+    </div>
+  );
 }
 
 function Teleprompter({ lines, t }: { lines: Line[]; t: number }) {
