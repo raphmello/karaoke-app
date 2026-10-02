@@ -47,16 +47,22 @@ const Row = memo(
     role,
     t,
     setRef,
+    compact,
   }: {
     line: Line;
     role: Role;
     t: number;
     setRef: (el: HTMLParagraphElement | null) => void;
+    compact: boolean;
   }) {
     return (
       <p
         ref={setRef}
-        className="max-w-6xl text-center text-5xl leading-tight font-bold md:text-6xl"
+        className={
+          compact
+            ? "text-center text-3xl leading-tight font-bold short:text-2xl"
+            : "max-w-6xl text-center text-5xl leading-tight font-bold md:text-6xl"
+        }
         style={{
           opacity: role === "hidden" ? 0 : role === "sung" ? 1 : role === "past" ? 0.3 : 0.55,
           transition: `opacity ${ROLL_MS}ms ease-out`,
@@ -67,7 +73,8 @@ const Row = memo(
       </p>
     );
   },
-  (a, b) => a.line === b.line && a.role === b.role && (a.role !== "sung" || a.t === b.t),
+  (a, b) =>
+    a.line === b.line && a.compact === b.compact && a.role === b.role && (a.role !== "sung" || a.t === b.t),
 );
 
 // An outline around the letters: two tight dark shadows. A filter (not text-shadow or text-stroke) because the sung
@@ -79,14 +86,21 @@ export function Lyrics({
   t,
   title,
   outline = false,
+  compact = false,
 }: {
   lines: Line[] | null;
   t: number;
   title: string;
   outline?: boolean;
+  compact?: boolean; // the TV on a phone: smaller lines
 }) {
   if (!lines || lines.length === 0) {
-    return (
+    return compact ? (
+      <div className="px-4 text-center" style={{ filter: outline ? OUTLINE : undefined }}>
+        <p className="text-3xl font-bold">{title}</p>
+        <p className="mt-3 text-xl text-zinc-400">Instrumental</p>
+      </div>
+    ) : (
       <div className="text-center" style={{ filter: outline ? OUTLINE : undefined }}>
         <p className="text-5xl font-bold md:text-6xl">{title}</p>
         <p className="mt-6 text-3xl text-zinc-400">Instrumental</p>
@@ -95,12 +109,12 @@ export function Lyrics({
   }
   return (
     <div className="h-full w-full" style={{ filter: outline ? OUTLINE : undefined }}>
-      <Teleprompter lines={lines} t={t} />
+      <Teleprompter lines={lines} t={t} compact={compact} />
     </div>
   );
 }
 
-function Teleprompter({ lines, t }: { lines: Line[]; t: number }) {
+function Teleprompter({ lines, t, compact }: { lines: Line[]; t: number; compact: boolean }) {
   const view = lyricsAt(lines, t);
   const focus = focusIndex(lines, view);
   const box = useRef<HTMLDivElement>(null);
@@ -124,26 +138,26 @@ function Teleprompter({ lines, t }: { lines: Line[]; t: number }) {
     place();
     window.addEventListener("resize", place);
     return () => window.removeEventListener("resize", place);
-  }, [focus, lines]);
+  }, [focus, lines, compact]);
 
   return (
     <div ref={box} className="relative h-full w-full overflow-hidden">
       <p
-        className="absolute inset-x-0 text-center text-4xl tracking-[0.5em] text-amber-300"
-        style={{ top: `calc(${FOCUS_AT * 100}% - 4rem)` }}
+        className={`absolute inset-x-0 text-center tracking-[0.5em] text-amber-300 ${compact ? "text-2xl" : "text-4xl"}`}
+        style={{ top: `calc(${FOCUS_AT * 100}% - ${compact ? 2.75 : 4}rem)` }}
         aria-label="contagem regressiva"
       >
         {view.countdown ? "●".repeat(view.countdown) : ""}
       </p>
       <div
-        className="absolute inset-x-0 top-0 flex flex-col items-center gap-6 px-6"
+        className={`absolute inset-x-0 top-0 flex flex-col items-center ${compact ? "gap-4 px-4" : "gap-6 px-6"}`}
         style={{ transform: `translateY(${shift}px)`, transition: `transform ${ROLL_MS}ms ease-out` }}
       >
         {lines.map((line, i) => {
           const sung = i === view.index && view.current !== null;
           const visible = i >= focus - BEFORE && i <= focus + AFTER;
           const role: Role = !visible ? "hidden" : sung ? "sung" : i < focus ? "past" : "next";
-          return <Row key={i} line={line} role={role} t={sung ? t : 0} setRef={setters[i]} />;
+          return <Row key={i} line={line} role={role} t={sung ? t : 0} setRef={setters[i]} compact={compact} />;
         })}
       </div>
     </div>

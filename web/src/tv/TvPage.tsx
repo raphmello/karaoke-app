@@ -7,6 +7,7 @@ import { type Next, nextEntry, songTitle, statusText } from "../lib/queue";
 import { AudioEngine } from "../player/engine";
 import { HostLogin } from "../room/HostLogin";
 import { type Command, useRoom } from "../room/useRoom";
+import { useCompact } from "./compact";
 import { JoinQr } from "./JoinQr";
 import { useLook } from "./look";
 import { type PlayerReport, PlayerScreen } from "./PlayerScreen";
@@ -173,6 +174,7 @@ function TvQueue({
   const send = useRef<(message: object) => void>(() => undefined);
   const [left, setLeft] = useState(COUNTDOWN_S);
   const [held, setHeld] = useState(false); // the host paused between songs
+  const compact = useCompact();
 
   const end = useCallback(() => {
     setCurrent((entry) => {
@@ -255,17 +257,29 @@ function TvQueue({
         onEnded={end}
         onReport={report}
         commands={commands}
-        corner={closed ? undefined : <JoinQr room={room} size={150} caption="Leia para entrar e escolher músicas" />}
+        corner={
+          closed ? undefined : compact ? (
+            <JoinQr room={room} size={72} />
+          ) : (
+            <JoinQr room={room} size={150} caption="Leia para entrar e escolher músicas" />
+          )
+        }
         look={look}
         onLook={changeLook}
-        upNext={closed ? undefined : <UpNext next={nextEntry(entries?.filter((e) => e.id !== current.id) ?? [])} />}
+        upNext={
+          closed ? undefined : (
+            <UpNext next={nextEntry(entries?.filter((e) => e.id !== current.id) ?? [])} compact={compact} />
+          )
+        }
         banner={closed ? <ClosedBanner room={room} closed={closed} /> : undefined}
       />
     );
   }
   if (closed) return <ClosedNotice room={room} closed={closed} />;
   if (upcoming) {
-    return <BetweenSongs room={room} entry={upcoming} left={left} held={held} connected={live.connected} />;
+    return (
+      <BetweenSongs room={room} entry={upcoming} left={left} held={held} connected={live.connected} compact={compact} />
+    );
   }
   return (
     <Centered>
@@ -295,14 +309,35 @@ function BetweenSongs({
   left,
   held,
   connected,
+  compact,
 }: {
   room: ActiveRoom;
   entry: QueueEntry;
   left: number;
   held: boolean;
   connected: boolean;
+  compact: boolean;
 }) {
   const key = keyLabel(entry.song.original_key, entry.semitones);
+  if (compact) {
+    return (
+      <main className="flex h-full flex-col items-center justify-center gap-6 overflow-y-auto px-4 py-6 text-center short:flex-row short:gap-10">
+        <div className="flex min-w-0 flex-col items-center gap-2">
+          <p className="text-sm tracking-widest text-zinc-400 uppercase">Próxima</p>
+          <p className="max-w-full truncate text-4xl font-bold text-amber-300">{entry.singer_name ?? entry.added_by}</p>
+          <p className="text-xl font-semibold">{songTitle(entry.song)}</p>
+          <p className="text-zinc-400">
+            {entry.song.artist ?? entry.song.channel} · {key.current}
+          </p>
+          <p className="mt-3 text-3xl font-bold tabular-nums" aria-live="polite">
+            {held ? <span className="text-xl text-zinc-400">Pausado pelo host</span> : `Começa em ${Math.max(left, 0)}`}
+          </p>
+          {!connected && <p className="text-amber-300">Reconectando ao servidor…</p>}
+        </div>
+        <JoinQr room={room} size={160} />
+      </main>
+    );
+  }
   return (
     <main className="flex h-full flex-col items-center justify-center gap-12 px-8 lg:flex-row lg:gap-24">
       <div className="flex max-w-3xl flex-col items-center gap-4 text-center lg:items-start lg:text-left">
@@ -323,9 +358,19 @@ function BetweenSongs({
 }
 
 /** In a corner while a song plays: who sings next, and what. Nothing when the queue has nothing to play. */
-function UpNext({ next }: { next: Next }) {
+function UpNext({ next, compact }: { next: Next; compact: boolean }) {
   if (next.kind === "empty") return null;
   const { entry } = next;
+  if (compact) {
+    // one line, between the lyrics and the controls
+    return (
+      <p className="truncate rounded-lg bg-black/60 px-3 py-1.5 text-sm backdrop-blur-sm">
+        <span className="font-semibold tracking-widest text-amber-300 uppercase">A seguir</span>{" "}
+        <span className="font-bold">{entry.singer_name ?? entry.added_by}</span>
+        <span className="text-zinc-300"> · {songTitle(entry.song)}</span>
+      </p>
+    );
+  }
   return (
     <div className="max-w-sm rounded-xl bg-black/60 px-4 py-3 backdrop-blur-sm">
       <p className="text-xs font-semibold tracking-widest text-amber-300 uppercase">

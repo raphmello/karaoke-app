@@ -4,6 +4,7 @@ import { fetchLyrics, type Song } from "../api";
 import { clampSemitones, keyLabel, MAX_SEMITONES, MIN_SEMITONES } from "../lib/keys";
 import { songTitle } from "../lib/queue";
 import type { AudioEngine } from "../player/engine";
+import { useCompact } from "./compact";
 import type { Look } from "./look";
 import type { Command } from "../room/useRoom";
 import { Lyrics } from "./Lyrics";
@@ -74,6 +75,8 @@ export function PlayerScreen({
   const [guide, setGuide] = useState(0);
   const [delayMs, setDelayMs] = useState(loadDelay);
   const [clock, setClock] = useState({ position: 0, lyrics: 0 });
+  const compact = useCompact(); // the TV on a phone: its own layout; larger screens keep the TV's
+  const [settings, setSettings] = useState(false); // on a phone, guide voice, delay and look fold away
   const delayRef = useRef(delayMs);
   delayRef.current = delayMs;
   const callbacks = useRef({ onEnded, onReport });
@@ -172,6 +175,141 @@ export function PlayerScreen({
   const label = keyLabel(song.original_key, semitones);
   const title = songTitle(song);
   const duration = engine.duration || song.duration_s || 0;
+
+  if (compact) {
+    const small =
+      "rounded-lg bg-zinc-800 px-3 py-2 font-semibold hover:bg-zinc-700 disabled:opacity-40 disabled:hover:bg-zinc-800";
+    return (
+      <div className="relative flex h-full flex-col overflow-hidden">
+        {look.background && <Backdrop videoId={song.video_id} fallback={media.thumb} />}
+        <div className="relative z-10 flex min-h-0 flex-1 flex-col">
+          {banner}
+          <header className="flex items-center justify-between gap-3 px-4 py-2 short:py-1 short:[&_img]:size-12">
+            <div className="min-w-0">
+              <p className="truncate text-lg font-semibold">{title}</p>
+              <p className="truncate text-sm text-zinc-400">
+                {singer} · {song.artist ?? song.channel}
+                {song.lyrics_source === "transcrita" ? " · letra transcrita" : ""}
+              </p>
+            </div>
+            {corner}
+          </header>
+
+          <main className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+            {loadError ? (
+              <p className="px-4 text-center text-lg text-red-400">Não foi possível carregar a música: {loadError}</p>
+            ) : !loaded || lyrics.isPending ? (
+              <p className="text-lg text-zinc-400">Carregando a música…</p>
+            ) : (
+              <Lyrics lines={lyrics.data?.lines ?? null} t={clock.lyrics} title={title} outline={look.outline} compact />
+            )}
+          </main>
+
+          {upNext && <div className="px-4 pb-2 short:hidden">{upNext}</div>}
+
+          <footer className="flex flex-col gap-3 bg-zinc-950/85 px-4 py-3 short:flex-row short:flex-wrap short:items-center short:gap-x-4 short:gap-y-2 short:py-2">
+            <div className="flex items-center gap-2 text-sm short:basis-full">
+              <span className="tabular-nums text-zinc-400">{formatTime(clock.position)}</span>
+              <input
+                type="range"
+                className="min-w-0 flex-1 accent-amber-400"
+                min={0}
+                max={duration || 1}
+                step={0.1}
+                value={Math.min(clock.position, duration)}
+                onChange={(event) => engine.seek(Number(event.target.value))}
+                disabled={!loaded}
+                aria-label="Posição na música"
+              />
+              <span className="tabular-nums text-zinc-400">{formatTime(duration)}</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button className={`${small} w-24`} onClick={() => togglePlay()} disabled={!loaded}>
+                {playing ? "Pausar" : "Tocar"}
+              </button>
+              <button className={small} onClick={onSkip}>
+                Pular
+              </button>
+              <button
+                className={`${small} ml-auto`}
+                onClick={() => setSettings((open) => !open)}
+                aria-expanded={settings}
+              >
+                Ajustes {settings ? "▴" : "▾"}
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 short:flex-1">
+              <button
+                className={small}
+                onClick={() => changeKey(semitones - 1)}
+                disabled={semitones <= MIN_SEMITONES}
+                aria-label="Meio tom abaixo"
+              >
+                −½
+              </button>
+              <div className="min-w-0 flex-1 text-center" aria-live="polite">
+                <p className="text-sm leading-tight font-bold text-amber-300">{label.current}</p>
+                {label.original && <p className="text-xs leading-tight text-zinc-400">{label.original}</p>}
+              </div>
+              <button
+                className={small}
+                onClick={() => changeKey(semitones + 1)}
+                disabled={semitones >= MAX_SEMITONES}
+                aria-label="Meio tom acima"
+              >
+                +½
+              </button>
+              <button
+                className={small}
+                onClick={() => changeKey(0)}
+                disabled={semitones === 0}
+                aria-label="Voltar ao tom original"
+              >
+                Original
+              </button>
+            </div>
+
+            {settings && (
+              <div className="flex flex-col gap-3 border-t border-zinc-800 pt-3 text-sm text-zinc-300 short:basis-full short:pt-2">
+                <label className="flex items-center gap-3">
+                  <span className="w-24 shrink-0">Voz guia</span>
+                  <input
+                    type="range"
+                    className="min-w-0 flex-1 accent-amber-400"
+                    min={0}
+                    max={100}
+                    step={5}
+                    value={guide}
+                    onChange={(event) => changeGuide(Number(event.target.value))}
+                  />
+                  <span className="w-10 text-right tabular-nums">{guide}%</span>
+                </label>
+                <div className="flex items-center gap-3">
+                  <span className="w-24 shrink-0">Atraso da letra</span>
+                  <button className={small} onClick={() => changeDelay(delayMs - DELAY_STEP_MS)} aria-label="Diminuir atraso">
+                    −
+                  </button>
+                  <span className="flex-1 text-center tabular-nums">
+                    {delayMs > 0 ? "+" : ""}
+                    {delayMs} ms
+                  </span>
+                  <button className={small} onClick={() => changeDelay(delayMs + DELAY_STEP_MS)} aria-label="Aumentar atraso">
+                    +
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Toggle label="Imagem de fundo" on={look.background} onChange={(background) => onLook({ background })} />
+                  <Toggle label="Borda na letra" on={look.outline} onChange={(outline) => onLook({ outline })} />
+                </div>
+              </div>
+            )}
+          </footer>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
