@@ -25,6 +25,10 @@ export class AudioEngine {
 
   /** Call from a click: browsers start audio only after the user interacts with the page. */
   static async create(): Promise<AudioEngine> {
+    // iPhone: Web Audio plays on the "ringer" channel, muted by the silent switch, unless the page says it is a
+    // media player (Safari 16.4+). Without this the TV ran, lyrics and all, with no sound.
+    const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
+    if (session) session.type = "playback";
     const ctx = new AudioContext();
     const shifter = await createRubberBandNode(ctx, workletUrl);
     shifter.setHighQuality(true); // the R3 engine

@@ -185,3 +185,12 @@ def test_skip_between_songs_skips_the_one_about_to_start(phone, host, code, db, 
     with db() as session:
         assert session.get(QueueEntry, ready).status == "skipped"  # what the TV would have played
         assert session.get(QueueEntry, waiting).status == "queued"
+
+
+def test_the_library_points_the_preview_to_the_original_download(phone, code, db, settings):
+    make_song(db, settings)
+    make_song(db, settings, OTHER, title="Sem original")
+    (SongFolder(settings.media_dir, VIDEO).root / "source.webm").write_bytes(b"audio")
+    songs = {s["video_id"]: s["media"] for s in phone(code, "Ana").get("/api/library").json()}
+    assert songs[VIDEO]["original"] == f"/media/{VIDEO}/source.webm"
+    assert songs[OTHER]["original"] is None  # the preview falls back to YouTube

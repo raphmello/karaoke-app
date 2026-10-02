@@ -17,6 +17,7 @@ class Media(BaseModel):
     vocals: str
     lyrics: str
     thumb: str
+    original: str | None = None  # the downloaded audio, voice and all: the library's preview
 
 
 class SongOut(BaseModel):
@@ -37,7 +38,8 @@ class SongOut(BaseModel):
     media: Media | None
 
     @classmethod
-    def of(cls, song: Song) -> SongOut:
+    def of(cls, song: Song, original: str | None = None) -> SongOut:
+        """`original` is the file name of the downloaded audio, when the caller looked it up on disk."""
         base = f"/media/{song.video_id}"
         media = None
         if song.status == READY:
@@ -46,6 +48,7 @@ class SongOut(BaseModel):
                 vocals=f"{base}/play/vocals.opus",
                 lyrics=f"{base}/lyrics/aligned.json",
                 thumb=f"{base}/thumb.jpg",
+                original=f"{base}/{original}" if original else None,
             )
         return cls(
             video_id=song.video_id,

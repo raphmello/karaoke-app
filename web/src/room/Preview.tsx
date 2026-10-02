@@ -1,6 +1,7 @@
-// Hear a song before adding it. A video not yet downloaded comes from YouTube through the API (/api/preview); a
-// library song plays from /media, instrumental and voice together, so it sounds like the original. One preview
-// plays at a time.
+// Hear a song before adding it, from one audio file, so voice and instrumental can't drift apart: a library song plays
+// its original download from /media; a video not yet downloaded comes from YouTube through the API (/api/preview).
+// When the browser can't play a source (older iPhones don't play .webm), the next one is tried. One preview plays at
+// a time.
 import { useEffect, useRef, useState } from "react";
 import { formatTime } from "../tv/time";
 
@@ -9,59 +10,74 @@ let stopPlaying: (() => void) | null = null; // the preview playing now, whereve
 type State = "idle" | "loading" | "playing" | "paused" | "error";
 export type PreviewControl = ReturnType<typeof usePreview>;
 
-export function usePreview(videoId: string, local: boolean) {
+/** Where a song's preview comes from, best first. */
+export function previewSources(videoId: string, original?: string | null): string[] {
+  return [...(original ? [original] : []), `/api/preview/${videoId}`];
+}
+
+export function usePreview(sources: string[]) {
   const [state, setState] = useState<State>("idle");
   const [clock, setClock] = useState({ position: 0, duration: 0 });
-  const audios = useRef<HTMLAudioElement[]>([]);
+  const audio = useRef<HTMLAudioElement | null>(null);
 
   // Stable across renders, so "the preview playing now" can be compared and stopped from another row.
   const stop = useRef(() => {
-    for (const audio of audios.current) audio.pause();
+    audio.current?.pause();
     setState((s) => (s === "idle" ? s : "paused"));
   }).current;
 
   useEffect(
     () => () => {
-      for (const audio of audios.current) {
-        audio.pause();
-        audio.removeAttribute("src");
-        audio.load(); // let go of the connection
+      if (audio.current) {
+        audio.current.pause();
+        audio.current.removeAttribute("src");
+        audio.current.load(); // let go of the connection
       }
       if (stopPlaying === stop) stopPlaying = null;
     },
     [stop],
   );
 
-  const create = () => {
-    const sources = local
-      ? [`/media/${videoId}/play/instrumental.opus`, `/media/${videoId}/play/vocals.opus`]
-      : [`/api/preview/${videoId}`];
-    audios.current = sources.map((src) => {
-      const audio = new Audio(src);
-      audio.preload = "auto";
-      return audio;
-    });
-    const [main, ...others] = audios.current;
-    main.addEventListener("timeupdate", () => {
-      setClock({ position: main.currentTime, duration: main.duration || 0 });
-      // the voice follows the instrumental; two elements drift apart a little over time
-      for (const other of others) if (Math.abs(other.currentTime - main.currentTime) > 0.15) other.currentTime = main.currentTime;
-    });
-    main.addEventListener("ended", () => setState("paused"));
-    main.addEventListener("error", () => setState("error"));
+  /** Plays the sources in order until one works. */
+  const start = async (from: number): Promise<void> => {
+    if (from >= sources.length) {
+      setState("error");
+      return;
+    }
+    const element = new Audio(sources[from]);
+    element.preload = "auto";
+    element.addEventListener("timeupdate", () =>
+      setClock({ position: element.currentTime, duration: element.duration || 0 }),
+    );
+    element.addEventListener("ended", () => setState("paused"));
+    audio.current = element;
+    try {
+      await element.play();
+      element.addEventListener("error", () => setState("error"));
+      setState("playing");
+    } catch (e) {
+      if ((e as Error).name === "NotAllowedError") {
+        setState("error"); // the browser wants a tap: nothing else to try
+        return;
+      }
+      await start(from + 1); // this format or source failed: the next one
+    }
   };
 
   const play = async () => {
     if (stopPlaying && stopPlaying !== stop) stopPlaying();
     stopPlaying = stop;
-    if (!audios.current.length) create();
     setState("loading");
-    try {
-      await Promise.all(audios.current.map((audio) => audio.play()));
-      setState("playing");
-    } catch {
-      setState("error");
+    if (audio.current) {
+      try {
+        await audio.current.play();
+        setState("playing");
+        return;
+      } catch {
+        // fall through and start over
+      }
     }
+    await start(0);
   };
 
   return {
@@ -69,7 +85,7 @@ export function usePreview(videoId: string, local: boolean) {
     clock,
     toggle: () => (state === "playing" ? stop() : void play()),
     seek: (seconds: number) => {
-      for (const audio of audios.current) audio.currentTime = seconds;
+      if (audio.current) audio.current.currentTime = seconds;
     },
   };
 }

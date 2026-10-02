@@ -75,7 +75,7 @@ from karaoke.core.songs import (
     restore_song,
     skip_playing,
 )
-from karaoke.core.storage import VIDEO_ID
+from karaoke.core.storage import VIDEO_ID, SongFolder
 
 log = logging.getLogger("karaoke.api")
 
@@ -133,7 +133,11 @@ def preview(request: Request, db: Sessions, video_id: str) -> StreamingResponse:
 
 @api.get("/library")
 def library(
-    request: Request, db: Sessions, q: Annotated[str | None, Query(max_length=200)] = None, removed: bool = False
+    request: Request,
+    db: Sessions,
+    settings: AppSettings,
+    q: Annotated[str | None, Query(max_length=200)] = None,
+    removed: bool = False,
 ) -> list[SongOut]:
     """The songs that play right away. Removed ones stay in the database but out of the library; `removed=true`
     lists them instead, for the host to restore."""
@@ -146,7 +150,12 @@ def library(
             pattern = f"%{word}%"
             query = query.where(or_(Song.title.ilike(pattern), Song.artist.ilike(pattern), Song.track.ilike(pattern)))
         rows = session.scalars(query.order_by(Song.artist, Song.track, Song.title)).all()
-        return [SongOut.of(row) for row in rows]
+        return [SongOut.of(row, original_name(settings, row.video_id)) for row in rows]
+
+
+def original_name(settings: Settings, video_id: str) -> str | None:
+    source = SongFolder(settings.media_dir, video_id).source_audio()
+    return source.name if source else None
 
 
 # --- host and rooms ------------------------------------------------------------------------------------------------

@@ -7,25 +7,23 @@ import { clampSemitones, MAX_SEMITONES, MIN_SEMITONES, signed } from "../lib/key
 import { songTitle } from "../lib/queue";
 import { loadNickname } from "../phone/identity";
 import { formatTime } from "../tv/time";
-import { PreviewBar, PreviewButton, usePreview } from "./Preview";
+import { PreviewBar, PreviewButton, previewSources, usePreview } from "./Preview";
 
 /** A song in the results or the library: tap it to add, or the round button on the right to hear it first. */
 function SongRow({
-  videoId,
-  local,
+  sources,
   thumbnail,
   details,
   onPick,
   children,
 }: {
-  videoId: string;
-  local: boolean;
+  sources: string[];
   thumbnail: string | null;
   details: ReactNode;
   onPick: () => void;
   children: ReactNode;
 }) {
-  const preview = usePreview(videoId, local);
+  const preview = usePreview(sources);
   return (
     <li className="rounded-xl bg-zinc-900 p-3">
       <div className="flex items-center gap-3">
@@ -74,8 +72,7 @@ export function Search({ code, onAdded }: { code: string; onAdded: (title: strin
         {results.data?.map((result) => (
           <SongRow
             key={result.video_id}
-            videoId={result.video_id}
-            local={result.in_library}
+            sources={previewSources(result.video_id)}
             thumbnail={result.thumbnail_url}
             onPick={() => setPicked(picked?.video_id === result.video_id ? null : result)}
             details={
@@ -118,8 +115,7 @@ export function Library({ code, onAdded }: { code: string; onAdded: (title: stri
         {songs.data?.map((song) => (
           <SongRow
             key={song.video_id}
-            videoId={song.video_id}
-            local
+            sources={previewSources(song.video_id, song.media?.original)}
             thumbnail={song.thumbnail_url}
             onPick={() => setPicked(picked === song.video_id ? null : song.video_id)}
             details={

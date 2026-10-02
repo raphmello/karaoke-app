@@ -16,7 +16,7 @@ export type Song = {
   lyrics_source: string | null;
   alignment_confidence: number | null;
   error: string | null;
-  media: { instrumental: string; vocals: string; lyrics: string; thumb: string } | null;
+  media: { instrumental: string; vocals: string; lyrics: string; thumb: string; original: string | null } | null;
 };
 
 export type QueueEntry = {
