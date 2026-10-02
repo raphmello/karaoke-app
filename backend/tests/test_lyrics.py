@@ -1,3 +1,7 @@
+import pytest
+import requests
+
+from karaoke.pipeline import lyrics as lyrics_module
 from karaoke.pipeline.lyrics import (
     artist_and_track,
     choose,
@@ -94,3 +98,49 @@ def test_the_channel_outranks_lyrics_filed_the_wrong_way_round():
 def test_without_the_channel_the_lyrics_decide():
     meta = {"title": "In The End - Linkin Park", "channel": "Some Uploader"}
     assert artist_and_track(meta, {"artist": "Linkin Park", "track": "In The End"}) == ("Linkin Park", "In The End")
+
+
+class Answer:
+    def __init__(self, status):
+        self.status_code = status
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code}", response=self)
+
+    def json(self):
+        return []
+
+
+def answering(monkeypatch, *answers):
+    calls = []
+
+    def get(url, params, headers, timeout):
+        calls.append(url)
+        answer = answers[len(calls) - 1]
+        if isinstance(answer, Exception):
+            raise answer
+        return Answer(answer)
+
+    monkeypatch.setattr(lyrics_module.requests, "get", get)
+    monkeypatch.setattr(lyrics_module.time, "sleep", lambda s: None)
+    return calls
+
+
+def test_a_busy_lrclib_is_tried_again(monkeypatch):
+    calls = answering(monkeypatch, 503, requests.ConnectionError("reset"), 200)
+    assert lyrics_module.lrclib_request("search", {"q": "x"}).status_code == 200
+    assert len(calls) == 3
+
+
+def test_an_lrclib_still_down_after_four_tries_fails_the_stage(monkeypatch):
+    calls = answering(monkeypatch, 503, 503, 503, 503)
+    with pytest.raises(requests.HTTPError):
+        lyrics_module.lrclib_request("search", {"q": "x"})
+    assert len(calls) == 4
+
+
+def test_not_found_is_an_answer_not_an_outage(monkeypatch):
+    calls = answering(monkeypatch, 404)
+    assert lyrics_module.lrclib_get("Artista", "Música", 200) is None
+    assert len(calls) == 1

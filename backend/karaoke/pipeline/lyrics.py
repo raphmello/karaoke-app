@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 
 import requests
 
@@ -17,6 +18,7 @@ log = logging.getLogger("karaoke.pipeline")
 
 LRCLIB = "https://lrclib.net/api"
 HEADERS = {"User-Agent": "karaoke-app/0.1 (https://github.com/raphmello/karaoke-app)"}
+RETRY_WAITS_S = (1.0, 2.0, 4.0)  # LRCLIB is tried 4 times in all
 MAX_DURATION_DIFF = 10.0  # seconds; further away it is probably another version of the song
 TIMESTAMP = re.compile(r"\[(\d+):(\d+(?:\.\d+)?)\]")
 NOISE = re.compile(
@@ -113,11 +115,32 @@ def _candidate(record: dict, origin: str) -> dict | None:
     }
 
 
+def lrclib_request(endpoint: str, params: dict) -> requests.Response:
+    """LRCLIB sometimes answers 503 for a moment: a busy server, a timeout or a dropped connection is tried again
+    with growing waits. If it is still down after that, the error rises: "the service is down" is never recorded
+    as "these lyrics do not exist"."""
+    for attempt, wait in enumerate((*RETRY_WAITS_S, None)):
+        try:
+            resp = requests.get(f"{LRCLIB}/{endpoint}", params=params, headers=HEADERS, timeout=30)
+            if resp.status_code < 500:
+                return resp
+            problem: Exception = requests.HTTPError(f"{resp.status_code} do LRCLIB", response=resp)
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            problem = exc
+        if wait is None:
+            if isinstance(problem, requests.HTTPError):
+                problem.response.raise_for_status()
+            raise problem
+        log.info("LRCLIB falhou (%s), tentativa %d; de novo em %.0f s", problem, attempt + 1, wait)
+        time.sleep(wait)
+    raise AssertionError("unreachable")
+
+
 def lrclib_get(artist: str, track: str, duration: float | None) -> dict | None:
     params = {"artist_name": artist, "track_name": track}
     if duration:
         params["duration"] = round(duration)
-    resp = requests.get(f"{LRCLIB}/get", params=params, headers=HEADERS, timeout=30)
+    resp = lrclib_request("get", params)
     if resp.status_code == 404:
         return None
     resp.raise_for_status()
@@ -125,7 +148,7 @@ def lrclib_get(artist: str, track: str, duration: float | None) -> dict | None:
 
 
 def lrclib_search(query: str) -> list[dict]:
-    resp = requests.get(f"{LRCLIB}/search", params={"q": query}, headers=HEADERS, timeout=30)
+    resp = lrclib_request("search", {"q": query})
     resp.raise_for_status()
     return [c for c in (_candidate(r, "lrclib") for r in resp.json()) if c]
 
