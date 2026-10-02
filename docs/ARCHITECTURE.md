@@ -427,10 +427,12 @@ Sete fases, cada uma com um critério de pronto verificável. A fase 0 vem antes
     - Letra: LRC como esqueleto das linhas e Whisper turbo para as palavras, linha a linha.
     - Tom: Rubber Band R3 em arquivo, depois substituído pelo tom em tempo real no navegador (decisão 8).
     - Tempo total: ~111 s por música, somando as etapas medidas, cerca de 39% da duração da música.
-1. **Pipeline em linha de comando:** `karaoke process <video_id>` gera a pasta completa.
+1. **Pipeline em linha de comando:** concluída em 1º de outubro de 2026. `karaoke process <video_id>` gera a pasta completa.
     - Pronto quando: a segunda execução termina sem usar a GPU, e uma execução interrompida retoma de onde parou.
-2. **API, banco e worker:** tabelas, jobs com prioridade, busca, rotas de música e Compose com GPU.
+    - Verificado: a segunda execução levou 0,9 s num container sem acesso à GPU; depois de um `docker kill` no meio da separação, a nova execução retomou na separação. Cerca de 80 a 130 s por música.
+2. **API, banco e worker:** concluída em 1º de outubro de 2026. Tabelas, jobs com prioridade, busca, rotas de música e Compose com GPU.
     - Pronto quando: adicionar o mesmo vídeo cinco vezes ao mesmo tempo gera um único job.
+    - Verificado: cinco celulares adicionaram o mesmo vídeo novo ao mesmo tempo, pelo Caddy, e nasceram cinco entradas e um único job; o worker processou a música na GPU em ~107 s. Remover e alterar entradas, a resposta sobre a transcrição e o WebSocket ficam na fase 4; as rotas do host para músicas, na fase 5.
 3. **Player da TV:** dois stems na Web Audio API, letra palavra por palavra, voz guia, atraso e tom em tempo real (−½, +½ e voltar ao original, com o tom atual visível).
     - Pronto quando: uma música inteira toca com a letra em sincronia, e o tom muda ao vivo, de meio em meio tom, sem cortar o áudio nem dessincronizar a letra.
 4. **Fila, sala, QR e permissões:** tela do celular, convidados, WebSocket e testes da matriz.
