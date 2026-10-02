@@ -163,6 +163,7 @@ Cada `video_id` é processado no máximo uma vez. Tudo o que o pipeline produz f
 **Letra sincronizada: o LRC como esqueleto.** Alinhar a música inteira de uma vez deixou ~6% das linhas a segundos de onde são cantadas, e a audição reprovou o resultado. Os tempos do LRC também não servem direto: no spike, um clipe estava 5,5 s deslocado da letra e outra letra tinha deriva de 1,2% na velocidade. A solução aprovada de ouvido usa o LRC para as linhas e o Whisper para as palavras:
 
 1. O texto inteiro é alinhado à voz de uma vez, só para medir o deslocamento e a deriva entre o LRC e o áudio. A medida é uma reta robusta: Theil–Sen, refinada sem as linhas a mais de 2 s dela.
+    - A reta é conferida contra a energia da voz isolada: o pipeline procura também o melhor deslocamento simples, sem deriva, entre −60 e +60 s, e fica com ele quando as linhas cobrem a voz claramente melhor (margem de 0,05 no F1). Em Numb, o alinhamento da música inteira se perdeu e mediu −21,8 s com deriva de −24%, enquanto o LRC estava certo.
 2. Cada linha começa no tempo do LRC levado para o áudio por essa reta. Ela termina no tempo seguinte do LRC, contando as linhas vazias, que marcam pausas, e dura no máximo 12 s.
 3. As palavras de cada linha são alinhadas pelo stable-ts só dentro da janela da própria linha, com 0,3 s de margem de cada lado. Um erro fica preso naquela linha.
 4. Se as palavras de uma linha não alinharem, elas são distribuídas pelo tamanho e a linha fica `low_confidence`.
@@ -345,6 +346,7 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `GET /api/library?q=` | Convidado | Acervo de músicas prontas; removidas ficam de fora |
 | `POST /api/host/login` | Qualquer um | Troca o PIN por um cookie de host |
 | `POST /api/rooms` | Host | Abre a sala da noite e gera o código |
+| `GET /api/rooms/active` | Host | Sala ativa: código, nome e a origem pública do QR (`PUBLIC_BASE_URL`). A TV usa para achar a fila e montar o QR |
 | `POST /api/rooms/{code}/player/{ação}` | Host | play, pause ou skip |
 | `PUT /api/songs/{video_id}/lyrics` | Host | Troca a letra e realinha |
 | `POST /api/songs/{video_id}/reprocess` | Host | Reprocessa as etapas escolhidas |
@@ -363,7 +365,7 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `song.lyrics_missing` | Servidor → donos e host | `video_id` e as entradas que aguardam a decisão de transcrever |
 | `song.ready` / `song.failed` | Servidor → todos | `video_id` e erro, quando houver |
 | `player.command` | Servidor → TV | play, pause, skip, voz guia, atraso e tom (−½, +½ ou original) |
-| `player.state` | TV → servidor → todos | Entrada atual, posição, pausa e tom atual, a cada segundo |
+| `player.state` | TV → servidor → todos | Entrada atual, posição, pausa e tom atual, a cada segundo. Quando a TV informa outra entrada, ou nenhuma, a anterior fica `done` |
 
 Ao cair a conexão, o cliente reconecta com espera crescente e recebe um `queue.snapshot` novo.
 
@@ -436,8 +438,9 @@ Sete fases, cada uma com um critério de pronto verificável. A fase 0 vem antes
 3. **Player da TV:** concluída em 1º de outubro de 2026. Dois stems na Web Audio API, letra palavra por palavra, voz guia, atraso e tom em tempo real (−½, +½ e voltar ao original, com o tom atual visível).
     - Pronto quando: uma música inteira toca com a letra em sincronia, e o tom muda ao vivo, de meio em meio tom, sem cortar o áudio nem dessincronizar a letra.
     - Verificado: aprovado de ouvido, com músicas inteiras tocando em sincronia e o tom mudando ao vivo (de Mi menor a Fá♯ menor e de volta) sem corte. Nesta fase a TV escolhe a música no acervo; a fila entra na fase 4.
-4. **Fila, sala, QR e permissões:** tela do celular, convidados, WebSocket e testes da matriz.
+4. **Fila, sala, QR e permissões:** concluída em 1º de outubro de 2026. Tela do celular, convidados, WebSocket e testes da matriz.
     - Pronto quando: dois celulares usam a fila, e um não consegue remover a música do outro. Uma música sem letra pergunta ao dono, e um "não" tira a entrada da fila sem baixar nada.
+    - Verificado: o segundo celular recebeu 403 ao remover, mudar o tom e pular a música do primeiro; uma música sem letra perguntou só ao dono, e o "não" a tirou da fila sem baixar nada (na pasta, só `manifest.json` e `thumb.jpg`). A TV toca a fila sozinha e mostra o QR; o tom mudado no celular chega ao vivo à TV. Uma tela `/host` mínima abre a sala e controla fila e player.
 5. **Acabamento:** acervo, troca de letra e reprocessamento pelo host, painel de jobs e de disco, tela entre músicas.
     - Pronto quando: uma noite inteira roda sem precisar abrir o terminal.
 6. **Acesso remoto (adiada; não será executada agora):** perfil `remote` com Cloudflare Tunnel, HTTPS, proteção de `/media` e limites de uso.
