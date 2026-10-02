@@ -1,17 +1,17 @@
-// /m/<code>: the guest's phone. Search YouTube or the library, add songs (with the key they start in), follow the queue, change the
+// /m/<code>: the guest's phone. In the Room tab, search YouTube or the library and add songs (with the key they start in), follow the queue, change the
 // key of one's own entries, remove them and answer the transcription question.
 import { useEffect, useState } from "react";
-import { Library, Search } from "../room/AddSongs";
+import { AddSong } from "../room/AddSongs";
 import { QueueList } from "../room/QueueList";
 import { useRoom } from "../room/useRoom";
 import { loadNickname } from "./identity";
 
-type Tab = "queue" | "search" | "library";
-const TAB_NAMES: Record<Tab, string> = { search: "Buscar", library: "Acervo", queue: "Fila" };
+type Tab = "room" | "queue";
+const TAB_NAMES: Record<Tab, string> = { room: "Sala", queue: "Fila" };
 
 export function PhonePage({ code }: { code: string }) {
   const room = useRoom(code);
-  const [tab, setTab] = useState<Tab>("search");
+  const [tab, setTab] = useState<Tab>("room");
   const [notice, setNotice] = useState<string | null>(null);
 
   // Without a cookie of this room, the phone joins first.
@@ -31,7 +31,8 @@ export function PhonePage({ code }: { code: string }) {
   }
   return (
     <div className="mx-auto flex min-h-full max-w-xl flex-col">
-      <header className="sticky top-0 z-10 bg-[#0b0b12]/95 px-4 pt-4 backdrop-blur">
+      {/* Solid, so the list never shows through it while scrolling */}
+      <header className="sticky top-0 z-10 border-b border-zinc-800 bg-[#0b0b12] px-4 pt-4">
         <div className="flex items-baseline justify-between">
           <h1 className="text-xl font-bold">Karaokê</h1>
           <span className="text-sm text-zinc-400">
@@ -39,8 +40,8 @@ export function PhonePage({ code }: { code: string }) {
             {!room.connected && " · reconectando…"}
           </span>
         </div>
-        <nav className="mt-3 grid grid-cols-3 gap-2 pb-3">
-          {(["search", "library", "queue"] as const).map((t) => (
+        <nav className="mt-3 grid grid-cols-2 gap-2 pb-3">
+          {(["room", "queue"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -58,11 +59,9 @@ export function PhonePage({ code }: { code: string }) {
         )}
         {notice && <p className="mb-3 rounded-lg bg-emerald-950 px-3 py-2 text-sm text-emerald-200">{notice}</p>}
       </header>
-      <main className="flex-1 px-4 pb-8">
-        {tab === "search" ? (
-          <Search code={code} onAdded={added} />
-        ) : tab === "library" ? (
-          <Library code={code} onAdded={added} />
+      <main className="flex-1 px-4 pt-4 pb-8">
+        {tab === "room" ? (
+          <AddSong code={code} onAdded={added} />
         ) : room.entries ? (
           <QueueList code={code} entries={room.entries} progress={room.progress} isHost={false} />
         ) : (

@@ -143,3 +143,34 @@ function AddForm({
     </div>
   );
 }
+
+/** Adding a song, for the guest's Room tab and the host's: from a YouTube search or from the library. */
+export function AddSong({ code, onAdded }: { code: string; onAdded?: (title: string) => void }) {
+  const [source, setSource] = useState<"search" | "library">("search");
+  const [notice, setNotice] = useState<string | null>(null);
+  const added = (title: string) => {
+    setNotice(`"${title}" entrou na fila.`);
+    window.setTimeout(() => setNotice(null), 4000);
+    onAdded?.(title);
+  };
+  return (
+    <section className="flex flex-col gap-3 rounded-xl bg-zinc-900 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">Adicionar música</h2>
+        <div className="flex gap-2">
+          {([["search", "Buscar no YouTube"], ["library", "Acervo"]] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setSource(id)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${source === id ? "bg-amber-400 text-zinc-950" : "bg-zinc-800 text-zinc-300"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {notice && <p className="rounded-lg bg-emerald-950 px-3 py-2 text-sm text-emerald-200">{notice}</p>}
+      {source === "search" ? <Search code={code} onAdded={added} /> : <Library code={code} onAdded={added} />}
+    </section>
+  );
+}
