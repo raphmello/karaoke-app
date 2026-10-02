@@ -343,6 +343,7 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `DELETE /api/rooms/{code}/queue/{id}` | Dono ou host | Remove a entrada (remoção lógica) |
 | `POST /api/rooms/{code}/queue/{id}/transcription` | Dono ou host | Responde à pergunta: `{"accept": true}` transcreve; `false` remove a entrada |
 | `GET /api/songs/{video_id}` | Convidado | Status, metadados, tom original e URLs de mídia |
+| `GET /api/preview/{video_id}` | Convidado | Prévia de um vídeo ainda não baixado, antes de adicioná-lo: a API acha o áudio com o yt-dlp e o repassa, com Range. Músicas do acervo tocam a prévia direto de `/media` |
 | `GET /api/library?q=` | Convidado | Acervo de músicas prontas; removidas ficam de fora. Com `removed=true` (só o host), lista as removidas, para desfazer a remoção |
 | `POST /api/host/login` | Qualquer um | Troca o PIN por um cookie de host |
 | `POST /api/rooms` | Host | Abre a sala da noite e gera o código |
@@ -378,7 +379,7 @@ Tudo roda em Docker Compose no seu PC, e só o Caddy fica exposto. O acesso remo
 | Serviço | Base | Exposição | Observação |
 | --- | --- | --- | --- |
 | `caddy` | `caddy:2`, com o `web/` compilado na imagem (`caddy.Dockerfile`; Node e pnpm só no build) | Porta 8080 do PC | Serve o frontend e `/media`; faz proxy de `/api` e `/ws` |
-| `api` | `python:3.12-slim` | Interna | Sem PyTorch, imagem leve |
+| `api` | `python:3.12-slim` com Deno | Interna | Sem PyTorch, imagem leve; o Deno serve ao yt-dlp para achar o áudio da prévia |
 | `worker` | Imagem PyTorch com CUDA, ffmpeg e Deno | Nenhuma | `gpus: all`; um job por vez |
 | `cloudflared` | `cloudflare/cloudflared` | Nenhuma | Só no perfil `remote` |
 
