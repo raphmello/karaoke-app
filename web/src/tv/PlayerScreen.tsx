@@ -49,6 +49,7 @@ export function PlayerScreen({
   banner,
   look,
   onLook,
+  upNext,
 }: {
   song: Song;
   singer: string;
@@ -63,6 +64,7 @@ export function PlayerScreen({
   banner?: ReactNode; // a notice across the top, over the song (the room closed)
   look: Look;
   onLook: (change: Partial<Look>) => void;
+  upNext?: ReactNode; // who sings next, in a corner over the lyrics
 }) {
   const media = song.media!;
   const lyrics = useQuery({ queryKey: ["lyrics", song.video_id], queryFn: () => fetchLyrics(media.lyrics) });
@@ -187,7 +189,8 @@ export function PlayerScreen({
           {corner}
         </header>
 
-        <main className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+        <main className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+          {upNext && <div className="absolute bottom-4 left-6 z-10">{upNext}</div>}
           {loadError ? (
             <p className="text-2xl text-red-400">Não foi possível carregar a música: {loadError}</p>
           ) : !loaded || lyrics.isPending ? (

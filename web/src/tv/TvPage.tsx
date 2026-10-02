@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, type ActiveRoom, api, onSessionLost, retryWhileRestarting, type QueueEntry } from "../api";
 import { keyLabel } from "../lib/keys";
-import { nextEntry, songTitle, statusText } from "../lib/queue";
+import { type Next, nextEntry, songTitle, statusText } from "../lib/queue";
 import { AudioEngine } from "../player/engine";
 import { HostLogin } from "../room/HostLogin";
 import { type Command, useRoom } from "../room/useRoom";
@@ -258,6 +258,7 @@ function TvQueue({
         corner={closed ? undefined : <JoinQr room={room} size={150} caption="Leia para entrar e escolher músicas" />}
         look={look}
         onLook={changeLook}
+        upNext={closed ? undefined : <UpNext next={nextEntry(entries?.filter((e) => e.id !== current.id) ?? [])} />}
         banner={closed ? <ClosedBanner room={room} closed={closed} /> : undefined}
       />
     );
@@ -318,5 +319,23 @@ function BetweenSongs({
       </div>
       <JoinQr room={room} size={220} />
     </main>
+  );
+}
+
+/** In a corner while a song plays: who sings next, and what. Nothing when the queue has nothing to play. */
+function UpNext({ next }: { next: Next }) {
+  if (next.kind === "empty") return null;
+  const { entry } = next;
+  return (
+    <div className="max-w-sm rounded-xl bg-black/60 px-4 py-3 backdrop-blur-sm">
+      <p className="text-xs font-semibold tracking-widest text-amber-300 uppercase">
+        A seguir{next.kind === "wait" ? " · preparando" : ""}
+      </p>
+      <p className="truncate text-2xl font-bold">{entry.singer_name ?? entry.added_by}</p>
+      <p className="truncate text-zinc-300">
+        {songTitle(entry.song)}
+        {entry.song.artist ? ` · ${entry.song.artist}` : ""}
+      </p>
+    </div>
   );
 }
