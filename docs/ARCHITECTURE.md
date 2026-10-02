@@ -42,7 +42,7 @@ As escolhas priorizam um único PC com GPU, sem custo recorrente e sem reprocess
 | 5 | Banco | SQLite em modo WAL, via SQLAlchemy | Um arquivo, zero operação; SQLAlchemy deixa a porta aberta para Postgres |
 | 6 | Identidade da música | `video_id` do YouTube como chave primária de `songs` | Atende o requisito 8; cache e deduplicação vêm de graça |
 | 7 | Quando processar | Assim que a música entra na fila | A espera some, exceto na primeira música da noite |
-| 8 | Mudança de tom | Em tempo real, no navegador da TV: Rubber Band compilada para WebAssembly, num AudioWorklet, com o motor R3. O servidor guarda só o tom original | Troca imediata e limpa, de meio em meio tom, sem processar nem guardar uma versão por tom; o R3 soou natural de ouvido e usa ~17% de um núcleo |
+| 8 | Mudança de tom | Em tempo real, no navegador da TV: Rubber Band compilada para WebAssembly, num AudioWorklet, com o motor R3. No tom original o áudio não passa pela Rubber Band; ela só entra quando o tom muda. O servidor guarda só o tom original | Troca imediata e limpa, de meio em meio tom, sem processar nem guardar uma versão por tom; o R3 soou natural de ouvido e usa ~17% de um núcleo, um custo que só existe com o tom mudado |
 | 9 | Sincronização | Com letra sincronizada, o LRC dá o tempo de cada linha, ajustado ao áudio, e o Whisper alinha as palavras dentro de cada linha, sobre a voz isolada | Nenhuma linha fica segundos fora do lugar; foi a única abordagem aprovada de ouvido no spike da fase 0 |
 | 10 | Execução | Docker Compose com GPU via WSL2 | Isola CUDA, ffmpeg, Rubber Band e Deno; um comando sobe tudo |
 | 11 | Acesso remoto | Cloudflare Tunnel nomeado, com domínio próprio na Cloudflare; Tailscale só para administrar o PC | Convidados não instalam nada; downloads continuam saindo do IP de casa |
@@ -67,7 +67,7 @@ O backend inteiro é Python e o frontend é React com TypeScript. Os modelos de 
 | Alinhamento | [stable-ts](https://github.com/jianfch/stable-ts) `model.align()` com Whisper turbo (openai-whisper), sem VAD | Deslocamento e deriva do LRC (música inteira) e tempo de cada palavra (linha a linha); ~26 s por música, 3,9 GB de VRAM |
 | Transcrição de reserva | stable-ts com Whisper turbo | Só quando a letra não é encontrada e o dono da entrada autoriza |
 | Idioma da letra | [lingua](https://github.com/pemistahl/lingua-py) (`lingua-language-detector`) | Detecta o idioma pelo texto da letra, para o alinhamento |
-| Tom | [rubberband-web](https://github.com/delude88/rubberband-web): [Rubber Band](https://breakfastquay.com/rubberband/) em WebAssembly, como AudioWorklet, motor R3 (`setHighQuality(true)`) | Muda o tom ao vivo na TV, de meio em meio tom, de −6 a +6; ~17% de um núcleo e ~77 ms de atraso |
+| Tom | [rubberband-web](https://github.com/delude88/rubberband-web): [Rubber Band](https://breakfastquay.com/rubberband/) em WebAssembly, como AudioWorklet, motor R3 (`setHighQuality(true)`) | Muda o tom ao vivo na TV, de meio em meio tom, de −6 a +6; ~17% de um núcleo e 4096 amostras de atraso (~85 ms a 48 kHz). No tom original fica fora do caminho do áudio |
 | Detecção de tom | essentia `KeyExtractor` | Mostra o tom original da música |
 | Proxy e arquivos | Caddy | Serve o frontend e `/media` com suporte a Range; faz proxy para a API |
 | Infra | Docker Compose, Docker Desktop com WSL2 e GPU NVIDIA | Sobe tudo com um comando |
@@ -324,10 +324,11 @@ A TV é dona da reprodução. Ela toca os dois stems com a Web Audio API, desenh
 
 - O tom muda em tempo real, durante a música, de meio em meio tom, de −6 a +6 semitons. Nada é processado nem guardado no servidor: a TV passa o áudio por um AudioWorklet com a Rubber Band (rubberband-web), no motor R3.
 - Instrumental e voz guia são misturados antes e passam por um único ajuste de tom, o que corta o custo de CPU pela metade.
+- No tom original, a mistura não passa pela Rubber Band: vai direto para a saída, por um atraso fixo igual ao da Rubber Band, para o relógio da letra ser o mesmo nos dois caminhos. Ao mudar o tom, a Rubber Band passa a receber o áudio, aquece por ~200 ms e então a TV troca de caminho com uma transição suave de ~50 ms; ao voltar ao tom original, a transição é a inversa e a Rubber Band deixa de receber áudio. Assim o custo de CPU do ajuste só existe com o tom mudado.
 - Controles de tom: botão **−½ tom**, botão **+½ tom** e botão **voltar ao tom original**. Eles ficam no celular do dono da entrada, na tela do host e na própria TV.
 - O tom atual fica sempre visível na TV e nos controles, em nome e em semitons: "Tom: Sol menor (−2) · original: Lá menor".
 - O tom pode já vir escolhido do celular, ao adicionar a música; é o tom em que ela começa.
-- A Rubber Band muda o tom sem mudar a duração, então os tempos da letra continuam válidos em qualquer tom. O atraso do próprio processamento (~77 ms com o R3) entra no `atraso` do relógio da letra.
+- A Rubber Band muda o tom sem mudar a duração, então os tempos da letra continuam válidos em qualquer tom. O atraso do próprio processamento (4096 amostras com o R3, ~85 ms a 48 kHz) entra no `atraso` do relógio da letra, nos dois caminhos.
 
 **Entre músicas**, a TV mostra o próximo cantor, a música, o tom e o QR Code, e a próxima começa sozinha depois de uma contagem de 5 s. O host pode pausar ou pular. Se a próxima ainda estiver processando, a contagem espera ela ficar pronta; entradas aguardando a decisão de transcrever, e as mais longas que a duração máxima, são puladas.
 
@@ -423,7 +424,7 @@ O maior risco é o YouTube quebrar o yt-dlp. Como tudo que já foi processado fi
 | VRAM insuficiente para separação e Whisper juntos | Erro de memória na GPU | A GPU tem 8 GB: o worker carrega um modelo por vez e libera a VRAM entre a separação e o alinhamento; modelos escolhidos pelo spike |
 | Atraso de caixa Bluetooth | Letra adiantada em relação ao som | Ajuste manual de atraso na TV, salvo no navegador |
 | Disco enche (~65 MB por música) | Falha ao gravar | Aviso no painel do host. Removidas continuam ocupando espaço, porque os arquivos são mantidos |
-| Tom em tempo real pesa na CPU do PC da TV | Áudio picotando | Validado no spike: o R3 usa ~17% de um núcleo de um i5-12400F, e uma só mistura passa pelo ajuste. O PC ligado à TV precisa de CPU de desktop; numa máquina fraca, o R2 usa metade disso |
+| Tom em tempo real pesa na CPU do PC da TV | Áudio picotando | Validado no spike: o R3 usa ~17% de um núcleo de um i5-12400F, e uma só mistura passa pelo ajuste. O PC ligado à TV precisa de CPU de desktop; numa máquina fraca, o R2 usa metade disso. Num iPhone espelhando na TV, o R3 picotou o áudio (chiado) mesmo no tom original, enquanto o mesmo arquivo tocado direto saía limpo: por isso, no tom original, o áudio não passa pela Rubber Band |
 | Licença GPL da Rubber Band, entregue ao navegador | Restrição se o app for distribuído | Uso privado não é afetado; distribuir o app exigiria licença compatível ou a licença comercial da Rubber Band |
 | PC desligado ou dormindo | App fora do ar na fase 2 | Plano de energia e reinicialização automática dos containers |
 | Termos do YouTube e direitos das letras | Risco legal ao abrir o acesso | Uso privado: sala com código, `/media` protegido, nada indexado |
