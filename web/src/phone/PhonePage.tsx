@@ -1,6 +1,7 @@
 // /m/<code>: the guest's phone. In the Room tab, search YouTube or the library and add songs (with the key they start in), follow the queue, change the
 // key of one's own entries, remove them and answer the transcription question.
 import { useEffect, useState } from "react";
+import { onSessionLost } from "../api";
 import { AddSong } from "../room/AddSongs";
 import { QueueList } from "../room/QueueList";
 import { useRoom } from "../room/useRoom";
@@ -14,10 +15,11 @@ export function PhonePage({ code }: { code: string }) {
   const [tab, setTab] = useState<Tab>("room");
   const [notice, setNotice] = useState<string | null>(null);
 
-  // Without a cookie of this room, the phone joins first.
+  // Without a cookie of this room, the phone joins first: on a closed socket or any request the API refuses.
   useEffect(() => {
     if (room.closedWith === 4401 || room.closedWith === 4403) location.replace(`/j/${code}`);
   }, [room.closedWith, code]);
+  useEffect(() => onSessionLost(() => location.replace(`/j/${code}`)), [code]);
 
   const added = (title: string) => {
     setNotice(`"${title}" entrou na fila.`);

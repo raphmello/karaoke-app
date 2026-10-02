@@ -1,8 +1,8 @@
 // /host: the host opens tonight's room and runs the queue and the player; manages the library; and watches the jobs
 // and the disk.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
-import { ApiError, type ActiveRoom, api } from "../api";
+import { type FormEvent, useEffect, useState } from "react";
+import { ApiError, type ActiveRoom, api, onSessionLost, retryWhileRestarting } from "../api";
 import { songTitle } from "../lib/queue";
 import { AddSong } from "../room/AddSongs";
 import { HostLogin } from "../room/HostLogin";
@@ -16,11 +16,21 @@ const button = "rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700
 
 export function HostPage() {
   const queryClient = useQueryClient();
-  const active = useQuery({ queryKey: ["active-room"], queryFn: api.activeRoom });
+  const active = useQuery({ queryKey: ["active-room"], queryFn: api.activeRoom, ...retryWhileRestarting });
   const status = active.error instanceof ApiError ? active.error.status : null;
+  const [lost, setLost] = useState(false);
+  useEffect(() => onSessionLost(() => setLost(true)), []);
 
-  if (status === 401) {
-    return <HostLogin title="Host do karaokê" onDone={() => void queryClient.invalidateQueries({ queryKey: ["active-room"] })} />;
+  if (status === 401 || lost) {
+    return (
+      <HostLogin
+        title="Host do karaokê"
+        onDone={() => {
+          setLost(false);
+          void queryClient.invalidateQueries();
+        }}
+      />
+    );
   }
   if (active.isPending) return <p className="p-8 text-zinc-400">Carregando…</p>;
   return <HostTabs active={active.data ?? null} missing={status === 404} error={active.error?.message ?? null} />;
@@ -104,6 +114,11 @@ function OpenRoom({ replacing, onOpened }: { replacing: boolean; onOpened: () =>
 
 function Room({ room }: { room: ActiveRoom }) {
   const live = useRoom(room.code);
+  const queryClient = useQueryClient();
+  // The socket closed because the session or the room is gone: check again (a 401 brings back the PIN).
+  useEffect(() => {
+    if (live.closedWith) void queryClient.invalidateQueries({ queryKey: ["active-room"] });
+  }, [live.closedWith, queryClient]);
   const [error, setError] = useState<string | null>(null);
   const playing = live.entries?.find((entry) => entry.id === live.playerState?.entry_id);
   const control = async (action: "play" | "pause" | "skip") => {

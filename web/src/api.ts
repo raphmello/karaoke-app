@@ -78,11 +78,28 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+// The screens listen for a lost session (the host's cookie expired, the API restarted, the guest's room closed):
+// the TV and /host go back to the PIN, the phone to joining the room.
+const sessionLost = new Set<() => void>();
+
+/** For queries the screens can't do without: retry while the server restarts (502, 503, no network), never when
+ *  it refused (4xx, such as a lost session). */
+export const retryWhileRestarting = {
+  retry: (failures: number, error: Error) => failures < 30 && !(error instanceof ApiError && error.status < 500),
+  retryDelay: 2000,
+};
+
+export function onSessionLost(listener: () => void): () => void {
+  sessionLost.add(listener);
+  return () => void sessionLost.delete(listener);
+}
+
+async function request<T>(path: string, init?: RequestInit, login = false): Promise<T> {
   const response = await fetch(path, {
     ...init,
     headers: { "content-type": "application/json", ...init?.headers },
   });
+  if (response.status === 401 && !login) sessionLost.forEach((listener) => listener());
   if (!response.ok) {
     let message = `Erro ${response.status}`;
     try {
@@ -106,7 +123,7 @@ const song = (videoId: string) => `/api/songs/${encodeURIComponent(videoId)}`;
 export const api = {
   search: (q: string) => request<SearchResult[]>(`/api/search?q=${encodeURIComponent(q)}`),
   song: (videoId: string) => request<Song>(song(videoId)),
-  hostLogin: (pin: string) => request<void>("/api/host/login", send("POST", { pin })),
+  hostLogin: (pin: string) => request<void>("/api/host/login", send("POST", { pin }), true), // a wrong PIN is not a lost session
   activeRoom: () => request<ActiveRoom>("/api/rooms/active"),
   openRoom: (name: string) => request<Room>("/api/rooms", send("POST", { name: name || null })),
   join: (code: string, nickname: string) => request<Guest>(`${room(code)}/join`, send("POST", { nickname })),

@@ -1,7 +1,7 @@
 // /tv: logs in with the host's PIN (the TV is on the host's PC), finds the open room and plays its queue in order.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, type ActiveRoom, api, type QueueEntry } from "../api";
+import { ApiError, type ActiveRoom, api, onSessionLost, retryWhileRestarting, type QueueEntry } from "../api";
 import { keyLabel } from "../lib/keys";
 import { nextEntry, songTitle, statusText } from "../lib/queue";
 import { AudioEngine } from "../player/engine";
@@ -17,12 +17,23 @@ export function TvPage() {
   const active = useQuery({
     queryKey: ["active-room"],
     queryFn: api.activeRoom,
+    ...retryWhileRestarting,
     refetchInterval: (query) => (query.state.data ? false : 5000), // waits for the host to open a room
   });
   const status = active.error instanceof ApiError ? active.error.status : null;
+  const [lost, setLost] = useState(false);
+  useEffect(() => onSessionLost(() => setLost(true)), []);
 
-  if (status === 401) {
-    return <HostLogin title="Karaokê na TV" onDone={() => void queryClient.invalidateQueries({ queryKey: ["active-room"] })} />;
+  if (status === 401 || lost) {
+    return (
+      <HostLogin
+        title="Karaokê na TV"
+        onDone={() => {
+          setLost(false);
+          void queryClient.invalidateQueries();
+        }}
+      />
+    );
   }
   if (active.data) return <TvRoom key={active.data.code} room={active.data} />;
   return (
@@ -92,6 +103,12 @@ function TvQueue({ room, engine }: { room: ActiveRoom; engine: AudioEngine }) {
     },
   });
   send.current = live.send;
+
+  // The socket closed because the session or the room is gone: check again (a 401 brings back the PIN).
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (live.closedWith) void queryClient.invalidateQueries({ queryKey: ["active-room"] });
+  }, [live.closedWith, queryClient]);
 
   const entries = live.entries?.filter((entry) => !finished.current.has(entry.id)) ?? null;
   const next = entries ? nextEntry(entries) : null;
