@@ -1,93 +1,157 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useCallback, useRef, useState } from "react";
-import { api, type Song } from "../api";
+// /tv: logs in with the host's PIN (the TV is on the host's PC), finds the open room and plays its queue in order.
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiError, type ActiveRoom, api, type QueueEntry } from "../api";
+import { nextEntry, songTitle, statusText } from "../lib/queue";
 import { AudioEngine } from "../player/engine";
-import { Library } from "./Library";
-import { PlayerScreen } from "./PlayerScreen";
+import { HostLogin } from "../room/HostLogin";
+import { type Command, useRoom } from "../room/useRoom";
+import { JoinQr } from "./JoinQr";
+import { type PlayerReport, PlayerScreen } from "./PlayerScreen";
 
-/** /tv: the TV logs in with the host's PIN (the TV is on the host's PC), then picks and plays songs. */
 export function TvPage() {
   const queryClient = useQueryClient();
-  const [needsLogin, setNeedsLogin] = useState(false);
-  const [song, setSong] = useState<Song | null>(null);
-  const [engine, setEngine] = useState<AudioEngine | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const creating = useRef<Promise<AudioEngine> | null>(null);
+  const active = useQuery({
+    queryKey: ["active-room"],
+    queryFn: api.activeRoom,
+    refetchInterval: (query) => (query.state.data ? false : 5000), // waits for the host to open a room
+  });
+  const status = active.error instanceof ApiError ? active.error.status : null;
 
-  // The audio starts from this click: browsers allow sound only after the user interacts with the page.
-  const pick = async (picked: Song) => {
-    setError(null);
-    try {
-      creating.current ??= AudioEngine.create();
-      setEngine(await creating.current);
-      setSong(picked);
-    } catch (e) {
-      creating.current = null;
-      setError(`O áudio não pôde ser iniciado: ${(e as Error).message}`);
-    }
-  };
-  const exit = useCallback(() => setSong(null), []);
-
-  if (needsLogin) {
-    return (
-      <Login
-        onDone={() => {
-          setNeedsLogin(false);
-          void queryClient.invalidateQueries();
-        }}
-      />
-    );
+  if (status === 401) {
+    return <HostLogin title="Karaokê na TV" onDone={() => void queryClient.invalidateQueries({ queryKey: ["active-room"] })} />;
   }
-  if (song && engine) return <PlayerScreen key={song.video_id} song={song} engine={engine} onExit={exit} />;
+  if (active.data) return <TvRoom key={active.data.code} room={active.data} />;
   return (
-    <>
-      {error && <p className="bg-red-950 px-6 py-3 text-red-200">{error}</p>}
-      <Library onPick={pick} onUnauthorized={() => setNeedsLogin(true)} />
-    </>
+    <Centered>
+      <p className="text-3xl font-bold">Nenhuma sala aberta</p>
+      <p className="text-xl text-zinc-400">Abra a sala da noite na tela do host (/host). A TV entra nela sozinha.</p>
+    </Centered>
   );
 }
 
-function Login({ onDone }: { onDone: () => void }) {
-  const [pin, setPin] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+function Centered({ children }: { children: React.ReactNode }) {
+  return <main className="flex h-full flex-col items-center justify-center gap-6 px-6 text-center">{children}</main>;
+}
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setError(null);
+function TvRoom({ room }: { room: ActiveRoom }) {
+  const [engine, setEngine] = useState<AudioEngine | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // The audio starts from this click, once per session: browsers allow sound only after an interaction.
+  const start = async () => {
     try {
-      await api.hostLogin(pin);
-      onDone();
+      setEngine(await AudioEngine.create());
     } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
+      setError(`O áudio não pôde ser iniciado: ${(e as Error).message}`);
     }
   };
 
-  return (
-    <main className="flex h-full items-center justify-center px-4">
-      <form onSubmit={submit} className="flex w-full max-w-sm flex-col gap-4 rounded-2xl bg-zinc-900 p-8">
-        <h1 className="text-2xl font-bold">Karaokê na TV</h1>
-        <p className="text-zinc-400">Digite o PIN do host, definido no arquivo .env.</p>
-        <input
-          type="password"
-          inputMode="numeric"
-          autoFocus
-          className="rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-xl outline-none focus:border-amber-400"
-          value={pin}
-          onChange={(event) => setPin(event.target.value)}
-          aria-label="PIN do host"
-        />
-        {error && <p className="text-red-400">{error}</p>}
-        <button
-          className="rounded-lg bg-amber-400 px-4 py-3 text-lg font-bold text-zinc-950 disabled:opacity-50"
-          disabled={busy || !pin}
-        >
-          Entrar
+  if (!engine) {
+    return (
+      <Centered>
+        <JoinQr room={room} size={220} />
+        <button className="rounded-2xl bg-amber-400 px-10 py-5 text-3xl font-bold text-zinc-950" onClick={start} autoFocus>
+          Iniciar
         </button>
-      </form>
-    </main>
+        {error && <p className="text-red-400">{error}</p>}
+      </Centered>
+    );
+  }
+  return <TvQueue room={room} engine={engine} />;
+}
+
+function TvQueue({ room, engine }: { room: ActiveRoom; engine: AudioEngine }) {
+  const commands = useRef<((command: Command) => void) | null>(null);
+  const [current, setCurrent] = useState<QueueEntry | null>(null);
+  const [semitones, setSemitones] = useState(0);
+  const finished = useRef(new Set<number>()); // until the next snapshot says so, never replay what just ended
+  const send = useRef<(message: object) => void>(() => undefined);
+
+  const end = useCallback(() => {
+    setCurrent((entry) => {
+      if (entry) finished.current.add(entry.id);
+      return null;
+    });
+    // Nothing plays now: the server marks the entry that was playing as done.
+    send.current({ type: "player.state", entry_id: null, position: 0, paused: true, semitones: 0 });
+  }, []);
+
+  const live = useRoom(room.code, {
+    tv: true,
+    onCommand: (command) => {
+      if (command.action === "skip") end();
+      else if (command.action === "key" && command.semitones !== undefined) setSemitones(command.semitones);
+      else commands.current?.(command);
+    },
+  });
+  send.current = live.send;
+
+  const entries = live.entries?.filter((entry) => !finished.current.has(entry.id)) ?? null;
+  const next = entries ? nextEntry(entries) : null;
+
+  // Nothing playing: the next ready entry starts on its own.
+  useEffect(() => {
+    if (!current && next?.kind === "play") {
+      setCurrent(next.entry);
+      setSemitones(next.entry.semitones);
+    }
+  }, [current, next]);
+
+  // The entry as the server sees it now: its key may have changed on the owner's phone or the host's screen,
+  // and if it left the queue, the TV moves on.
+  const latest = current ? live.entries?.find((entry) => entry.id === current.id) : undefined;
+  useEffect(() => {
+    if (latest) setSemitones(latest.semitones);
+  }, [latest?.semitones]);
+  useEffect(() => {
+    if (current && live.entries && !latest) end();
+  }, [current, live.entries, latest, end]);
+
+  const report = useCallback(
+    ({ position, paused }: PlayerReport) => {
+      if (current) live.send({ type: "player.state", entry_id: current.id, position, paused, semitones });
+    },
+    [current, semitones, live.send],
+  );
+
+  if (current) {
+    return (
+      <PlayerScreen
+        key={current.id}
+        song={current.song}
+        singer={current.singer_name ?? current.added_by}
+        engine={engine}
+        semitones={semitones}
+        onSemitones={(value) => {
+          setSemitones(value);
+          void api.change(room.code, current.id, { semitones: value }).catch(() => undefined);
+        }}
+        onSkip={() => void api.player(room.code, "skip").catch(end)}
+        onEnded={end}
+        onReport={report}
+        commands={commands}
+        corner={<JoinQr room={room} size={96} />}
+      />
+    );
+  }
+  return (
+    <Centered>
+      {next?.kind === "wait" ? (
+        <>
+          <p className="text-3xl font-bold">Preparando a próxima: {songTitle(next.entry.song)}</p>
+          <p className="text-xl text-zinc-400">
+            {next.entry.singer_name ?? next.entry.added_by} · {statusText(next.entry, live.progress)}
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="text-3xl font-bold">Leia o QR Code e escolha uma música</p>
+          <p className="text-xl text-zinc-400">A fila está vazia. A primeira música começa assim que ficar pronta.</p>
+        </>
+      )}
+      <JoinQr room={room} size={260} />
+      {!live.connected && <p className="text-amber-300">Reconectando ao servidor…</p>}
+    </Centered>
   );
 }

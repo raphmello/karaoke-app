@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, field_validator
 
-from karaoke.core.models import READY, Song
+from karaoke.core.models import READY, QueueEntry, Song
+from karaoke.core.permissions import Actor
 from karaoke.core.storage import parse_video_id
 
 
@@ -125,6 +126,33 @@ class QueueEntryOut(BaseModel):
     added_by: str  # the owner's nickname, or "host"
     mine: bool  # the caller owns it
     song: SongOut
+
+    @classmethod
+    def of(cls, entry: QueueEntry, song: Song, nickname: str | None, actor: Actor) -> QueueEntryOut:
+        return cls(
+            id=entry.id,
+            video_id=entry.video_id,
+            position=entry.position,
+            status=entry.status,
+            singer_name=entry.singer_name,
+            semitones=entry.semitones,
+            added_by=nickname or "host",
+            mine=entry.guest_id == actor.owner_id,
+            song=SongOut.of(song),
+        )
+
+
+class QueueEntryPatch(BaseModel):
+    semitones: int | None = Field(default=None, ge=-6, le=6)  # the owner or the host
+    position: int | None = Field(default=None, ge=0)  # only the host: the new index in the queue, 0 = first
+
+
+class TranscriptionIn(BaseModel):
+    accept: bool
+
+
+class ActiveRoomOut(RoomOut):
+    public_base_url: str  # the QR's origin when the TV runs on localhost; empty when not set
 
 
 class EventIn(BaseModel):

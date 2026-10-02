@@ -10,6 +10,7 @@ from pathlib import Path
 class Settings:
     data_dir: Path
     host_pin: str = ""
+    public_base_url: str = ""  # the origin in the QR code when the TV was opened through localhost
     api_url: str = "http://api:8000"  # where the worker reports progress (/internal/events), inside Compose
     separation_model: str = "model_bs_roformer_ep_317_sdr_12.9755.ckpt"
     separation_overlap: int = 2
@@ -34,4 +35,5 @@ def load_settings() -> Settings:
     return Settings(
         data_dir=Path(os.environ.get("KARAOKE_DATA", "/data")),
         host_pin=os.environ.get("HOST_PIN", ""),
+        public_base_url=os.environ.get("PUBLIC_BASE_URL", "").rstrip("/"),
     )

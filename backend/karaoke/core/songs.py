@@ -11,11 +11,16 @@ from sqlalchemy.orm import Session
 
 from karaoke.core.config import Settings
 from karaoke.core.models import (
+    ACTIVE_ENTRY,
     AWAITING_DECISION,
+    DONE,
     PENDING,
+    PLAYING,
     QUEUED,
     READY,
     REMOVED,
+    SKIPPED,
+    Guest,
     Job,
     QueueEntry,
     Room,
@@ -90,6 +95,107 @@ def reactivate(session: Session, settings: Settings, song: Song, by: str) -> Non
         lyrics_missing = manifest.done("lyrics") and not manifest.info("lyrics").get("found")
         ensure_job(session, song.video_id, {"redo": ["lyrics"]} if lyrics_missing else None)
     record(session, song.video_id, "reactivated", by, {"status": song.status})
+
+
+# --- the queue (phase 4) ---------------------------------------------------------------------------------------
+
+# queue_entries.removed_reason
+BY_OWNER, BY_HOST, TRANSCRIPTION_DECLINED = "dono", "host", "transcrição recusada"
+
+
+class QueueError(Exception):
+    """A queue change that the entry's state does not allow (the API answers 409)."""
+
+
+def queue_rows(session: Session, room: Room) -> list[tuple[QueueEntry, Song, str | None]]:
+    """The room's active entries in order, with each song and the owner's nickname."""
+    return list(
+        session.execute(
+            select(QueueEntry, Song, Guest.nickname)
+            .join(Song, Song.video_id == QueueEntry.video_id)
+            .outerjoin(Guest, Guest.id == QueueEntry.guest_id)
+            .where(QueueEntry.room_id == room.id, QueueEntry.status.in_(ACTIVE_ENTRY))
+            .order_by(QueueEntry.position)
+        ).all()
+    )
+
+
+def remove_entry(session: Session, entry: QueueEntry, reason: str) -> bool:
+    """Logical removal: the row stays, out of the queue. True when the entry was playing (the TV must skip it)."""
+    if entry.status not in ACTIVE_ENTRY:
+        raise QueueError("Esta entrada já saiu da fila.")
+    was_playing = entry.status == PLAYING
+    entry.status, entry.removed_reason, entry.ended_at = REMOVED, reason, utcnow()
+    return was_playing
+
+
+def answer_transcription(session: Session, entry: QueueEntry, accept: bool, by: str) -> None:
+    """The owner's (or the host's) answer to "transcrever?". Yes: one job transcribes, and every entry of the video
+    goes back to waiting for it. No: this entry leaves the queue; with no active entry left, the song is removed and
+    nothing is downloaded."""
+    song = session.get(Song, entry.video_id)
+    if entry.status != AWAITING_DECISION or song.status != AWAITING_DECISION:
+        raise QueueError("Esta música não está esperando essa resposta.")
+    if accept:
+        song.status, song.error = PENDING, None
+        ensure_job(session, song.video_id, {"transcribe": True})
+        session.execute(
+            update(QueueEntry)
+            .where(QueueEntry.video_id == song.video_id, QueueEntry.status == AWAITING_DECISION)
+            .values(status=QUEUED)
+        )
+        record(session, song.video_id, "transcription_accepted", by)
+        return
+    remove_entry(session, entry, TRANSCRIPTION_DECLINED)
+    record(session, song.video_id, "transcription_declined", by)
+    session.flush()
+    still_waiting = session.scalar(
+        select(func.count()).select_from(QueueEntry).where(
+            QueueEntry.video_id == song.video_id, QueueEntry.status.in_(ACTIVE_ENTRY)
+        )
+    )
+    if not still_waiting:
+        song.status, song.removed_at, song.removed_reason = REMOVED, utcnow(), TRANSCRIPTION_DECLINED
+        record(session, song.video_id, "removed", by, {"reason": TRANSCRIPTION_DECLINED})
+
+
+def move_entry(session: Session, room: Room, entry: QueueEntry, index: int) -> None:
+    """Put the entry at `index` (0 = first) among the room's active entries, and renumber them all."""
+    entries = [e for e, _, _ in queue_rows(session, room) if e.id != entry.id]
+    entries.insert(max(0, min(index, len(entries))), entry)
+    for position, item in enumerate(entries, start=1):
+        item.position = position
+
+
+def set_playing(session: Session, room: Room, entry_id: int | None) -> bool:
+    """What the TV reports in player.state. When it reports another entry, or none, the one that was playing is
+    done. Returns True when the queue changed."""
+    playing = session.scalar(
+        select(QueueEntry).where(QueueEntry.room_id == room.id, QueueEntry.status == PLAYING)
+    )
+    if playing is not None and playing.id == entry_id:
+        return False
+    changed = False
+    if playing is not None:
+        playing.status, playing.ended_at = DONE, utcnow()
+        changed = True
+    if entry_id is not None:
+        entry = session.get(QueueEntry, entry_id)
+        if entry is not None and entry.room_id == room.id and entry.status == QUEUED:
+            entry.status, entry.started_at = PLAYING, utcnow()
+            changed = True
+    return changed
+
+
+def skip_playing(session: Session, room: Room) -> bool:
+    """The host skips the song that is playing. True when there was one."""
+    playing = session.scalar(
+        select(QueueEntry).where(QueueEntry.room_id == room.id, QueueEntry.status == PLAYING)
+    )
+    if playing is None:
+        return False
+    playing.status, playing.ended_at = SKIPPED, utcnow()
+    return True
 
 
 def hold_for_decision(session: Session, video_id: str) -> list[int]:

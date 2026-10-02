@@ -24,9 +24,14 @@ docker compose up -d --build
 
 Sobem três serviços: `caddy` (porta 8080, a única exposta, com o frontend compilado na imagem), `api` e `worker` (com a GPU). O banco SQLite e as músicas ficam no volume `karaoke-data`.
 
-## TV (fase 3)
+## Uma noite de karaokê (fase 4)
 
-Abra `http://<IP do PC>:8080/tv` no navegador do PC ligado à TV. Na primeira vez ela pede o PIN do host. Depois, escolha uma música pronta do acervo: ela toca com a letra palavra por palavra. Os botões **−½ tom**, **+½ tom** e **Voltar ao tom original** mudam o tom ao vivo (as setas ↑ e ↓ também; espaço pausa). A voz guia e o atraso da letra ficam no rodapé; o atraso fica salvo no navegador.
+1. No `.env`, defina `HOST_PIN` e `PUBLIC_BASE_URL=http://<IP do PC>:8080` (o endereço que os celulares usam).
+2. Em `http://<IP do PC>:8080/host`, entre com o PIN e abra a sala da noite.
+3. No PC ligado à TV, abra `http://<IP do PC>:8080/tv`, entre com o PIN e toque em **Iniciar**. A TV mostra o QR Code.
+4. Cada convidado lê o QR, escolhe um apelido, busca e adiciona músicas, já no tom em que quer começar. A fila toca em ordem, sozinha.
+
+Na TV, os botões **−½ tom**, **+½ tom** e **Voltar ao tom original** mudam o tom ao vivo (as setas ↑ e ↓ também; espaço pausa). O dono de cada música muda o tom dela pelo celular, e só ele (ou o host) pode removê-la. Quando a letra não é encontrada, o celular do dono pergunta se ela deve ser transcrita; um "não" tira a música da fila sem baixar nada. No `/host`, o host reordena a fila, remove qualquer música e toca, pausa ou pula.
 
 Para mexer no frontend sem reconstruir a imagem, com a pilha no ar:
 

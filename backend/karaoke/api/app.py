@@ -6,7 +6,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from karaoke.api.routes import api, internal
+from karaoke.api.realtime import Hub
+from karaoke.api.routes import api, internal, sockets
 from karaoke.api.search import CachedSearch, SearchFn, youtube_search
 from karaoke.core.auth import HostSigner
 from karaoke.core.config import Settings, load_settings
@@ -33,8 +34,10 @@ def create_app(settings: Settings | None = None, search: SearchFn = youtube_sear
     app = FastAPI(title="Karaokê", lifespan=lifespan)
     app.state.settings = settings
     app.state.sessions = make_sessionmaker(engine)
+    app.state.hub = Hub(app.state.sessions)
     app.state.host_signer = HostSigner()
     app.state.search = CachedSearch(search)
     app.include_router(api)
     app.include_router(internal)
+    app.include_router(sockets)
     return app

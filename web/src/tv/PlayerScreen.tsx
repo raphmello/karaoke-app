@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { fetchLyrics, type Song } from "../api";
 import { clampSemitones, keyLabel, MAX_SEMITONES, MIN_SEMITONES } from "../lib/keys";
+import { songTitle } from "../lib/queue";
 import type { AudioEngine } from "../player/engine";
+import type { Command } from "../room/useRoom";
 import { Lyrics } from "./Lyrics";
 import { formatTime } from "./time";
 
@@ -28,22 +30,50 @@ function saveDelay(ms: number): void {
 const button =
   "rounded-lg bg-zinc-800 px-4 py-2 text-lg font-semibold hover:bg-zinc-700 disabled:opacity-40 disabled:hover:bg-zinc-800";
 
-export function PlayerScreen({ song, engine, onExit }: { song: Song; engine: AudioEngine; onExit: () => void }) {
+export type PlayerReport = { position: number; paused: boolean };
+
+/** One song on the TV. The key is the queue entry's (`semitones`); the TV's buttons ask for a change through
+ *  `onSemitones`, and the new value comes back in the props, from whoever changed it. */
+export function PlayerScreen({
+  song,
+  singer,
+  engine,
+  semitones,
+  onSemitones,
+  onSkip,
+  onEnded,
+  onReport,
+  commands,
+  corner,
+}: {
+  song: Song;
+  singer: string;
+  engine: AudioEngine;
+  semitones: number;
+  onSemitones: (semitones: number) => void;
+  onSkip: () => void;
+  onEnded: () => void;
+  onReport: (report: PlayerReport) => void;
+  commands: { current: ((command: Command) => void) | null };
+  corner?: ReactNode;
+}) {
   const media = song.media!;
   const lyrics = useQuery({ queryKey: ["lyrics", song.video_id], queryFn: () => fetchLyrics(media.lyrics) });
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
-  const [semitones, setSemitones] = useState(0);
   const [guide, setGuide] = useState(0);
   const [delayMs, setDelayMs] = useState(loadDelay);
   const [clock, setClock] = useState({ position: 0, lyrics: 0 });
   const delayRef = useRef(delayMs);
   delayRef.current = delayMs;
+  const callbacks = useRef({ onEnded, onReport });
+  callbacks.current = { onEnded, onReport };
+
+  useEffect(() => engine.setSemitones(semitones), [engine, semitones]);
 
   useEffect(() => {
     let cancelled = false;
-    engine.setSemitones(0);
     engine.setGuide(0);
     engine
       .load(media)
@@ -67,7 +97,7 @@ export function PlayerScreen({ song, engine, onExit }: { song: Song; engine: Aud
       if (engine.playing && engine.position() >= engine.duration) {
         engine.stop();
         setPlaying(false);
-        onExit();
+        callbacks.current.onEnded();
         return;
       }
       setClock({ position: engine.position(), lyrics: engine.lyricsTime(delayRef.current / 1000) });
@@ -75,25 +105,35 @@ export function PlayerScreen({ song, engine, onExit }: { song: Song; engine: Aud
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [engine, onExit]);
+  }, [engine]);
 
-  const changeKey = (n: number) => {
-    const value = clampSemitones(n);
-    engine.setSemitones(value);
-    setSemitones(value);
-  };
-  const togglePlay = async () => {
-    if (engine.playing) {
-      engine.pause();
-      setPlaying(false);
-    } else {
+  // player.state, every second, so the phones and the host see what plays.
+  useEffect(() => {
+    const report = () => callbacks.current.onReport({ position: engine.position(), paused: !engine.playing });
+    report();
+    const timer = window.setInterval(report, 1000);
+    return () => window.clearInterval(timer);
+  }, [engine]);
+
+  const togglePlay = async (play = !engine.playing) => {
+    if (play) {
       await engine.play();
       setPlaying(true);
+    } else {
+      engine.pause();
+      setPlaying(false);
     }
   };
+  const changeKey = (n: number) => onSemitones(clampSemitones(n));
   const changeDelay = (ms: number) => {
     setDelayMs(ms);
     saveDelay(ms);
+  };
+
+  // Commands from the host (play, pause); skip and key are handled by the queue around this screen.
+  commands.current = (command) => {
+    if (command.action === "play") void togglePlay(true);
+    else if (command.action === "pause") void togglePlay(false);
   };
 
   // Keyboard, for a TV with a remote or a keyboard: space plays and pauses, arrows change the key.
@@ -114,22 +154,20 @@ export function PlayerScreen({ song, engine, onExit }: { song: Song; engine: Aud
   }, []);
 
   const label = keyLabel(song.original_key, semitones);
-  const title = song.track ?? song.title ?? song.video_id;
+  const title = songTitle(song);
   const duration = engine.duration || song.duration_s || 0;
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center justify-between gap-4 px-6 py-4">
+      <header className="flex items-start justify-between gap-4 px-6 py-4">
         <div className="min-w-0">
           <p className="truncate text-2xl font-semibold">{title}</p>
           <p className="truncate text-zinc-400">
-            {song.artist ?? song.channel}
+            {singer} · {song.artist ?? song.channel}
             {song.lyrics_source === "transcrita" ? " · letra transcrita automaticamente" : ""}
           </p>
         </div>
-        <button className={button} onClick={onExit}>
-          Voltar ao acervo
-        </button>
+        {corner}
       </header>
 
       <main className="flex flex-1 items-center justify-center overflow-hidden px-6">
@@ -144,8 +182,11 @@ export function PlayerScreen({ song, engine, onExit }: { song: Song; engine: Aud
 
       <footer className="flex flex-col gap-4 bg-zinc-950/80 px-6 py-4">
         <div className="flex items-center gap-4">
-          <button className={`${button} w-28`} onClick={togglePlay} disabled={!loaded}>
+          <button className={`${button} w-28`} onClick={() => togglePlay()} disabled={!loaded}>
             {playing ? "Pausar" : "Tocar"}
+          </button>
+          <button className={button} onClick={onSkip}>
+            Pular
           </button>
           <span className="w-14 text-right tabular-nums text-zinc-400">{formatTime(clock.position)}</span>
           <input

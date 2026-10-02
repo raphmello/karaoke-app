@@ -34,7 +34,7 @@ export function clampSemitones(n: number): number {
 export function keyLabel(originalKey: string | null | undefined, semitones: number) {
   const key = parseKey(originalKey);
   if (!key) {
-    return { current: semitones === 0 ? "Tom original" : `Tom: ${signed(semitones)}`, original: null };
+    return { current: semitones === 0 ? "Tom: original" : `Tom: ${signed(semitones)}`, original: null };
   }
   if (semitones === 0) return { current: `Tom: ${keyName(key)} (original)`, original: null };
   return { current: `Tom: ${keyName(key, semitones)} (${signed(semitones)})`, original: `original: ${keyName(key)}` };
