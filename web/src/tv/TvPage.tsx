@@ -2,12 +2,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, type ActiveRoom, api, type QueueEntry } from "../api";
+import { keyLabel } from "../lib/keys";
 import { nextEntry, songTitle, statusText } from "../lib/queue";
 import { AudioEngine } from "../player/engine";
 import { HostLogin } from "../room/HostLogin";
 import { type Command, useRoom } from "../room/useRoom";
 import { JoinQr } from "./JoinQr";
 import { type PlayerReport, PlayerScreen } from "./PlayerScreen";
+
+const COUNTDOWN_S = 5; // between songs (docs/ARCHITECTURE.md, "Entre músicas")
 
 export function TvPage() {
   const queryClient = useQueryClient();
@@ -67,6 +70,8 @@ function TvQueue({ room, engine }: { room: ActiveRoom; engine: AudioEngine }) {
   const [semitones, setSemitones] = useState(0);
   const finished = useRef(new Set<number>()); // until the next snapshot says so, never replay what just ended
   const send = useRef<(message: object) => void>(() => undefined);
+  const [left, setLeft] = useState(COUNTDOWN_S);
+  const [held, setHeld] = useState(false); // the host paused between songs
 
   const end = useCallback(() => {
     setCurrent((entry) => {
@@ -82,6 +87,7 @@ function TvQueue({ room, engine }: { room: ActiveRoom; engine: AudioEngine }) {
     onCommand: (command) => {
       if (command.action === "skip") end();
       else if (command.action === "key" && command.semitones !== undefined) setSemitones(command.semitones);
+      else if (!current && (command.action === "pause" || command.action === "play")) setHeld(command.action === "pause");
       else commands.current?.(command);
     },
   });
@@ -90,13 +96,23 @@ function TvQueue({ room, engine }: { room: ActiveRoom; engine: AudioEngine }) {
   const entries = live.entries?.filter((entry) => !finished.current.has(entry.id)) ?? null;
   const next = entries ? nextEntry(entries) : null;
 
-  // Nothing playing: the next ready entry starts on its own.
+  // Between songs: the next ready entry starts on its own after the countdown, unless the host paused it. A skip
+  // (the server skips the entry about to start) or a new first entry starts the countdown over.
+  const upcoming = !current && next?.kind === "play" ? next.entry : null;
+  const upcomingRef = useRef(upcoming);
+  upcomingRef.current = upcoming;
+  useEffect(() => setLeft(COUNTDOWN_S), [upcoming?.id]);
   useEffect(() => {
-    if (!current && next?.kind === "play") {
-      setCurrent(next.entry);
-      setSemitones(next.entry.semitones);
+    if (!upcoming || held) return;
+    if (left <= 0) {
+      const entry = upcomingRef.current!;
+      setCurrent(entry);
+      setSemitones(entry.semitones);
+      return;
     }
-  }, [current, next]);
+    const timer = window.setTimeout(() => setLeft((s) => s - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [upcoming?.id, held, left]);
 
   // The entry as the server sees it now: its key may have changed on the owner's phone or the host's screen,
   // and if it left the queue, the TV moves on.
@@ -135,6 +151,9 @@ function TvQueue({ room, engine }: { room: ActiveRoom; engine: AudioEngine }) {
       />
     );
   }
+  if (upcoming) {
+    return <BetweenSongs room={room} entry={upcoming} left={left} held={held} connected={live.connected} />;
+  }
   return (
     <Centered>
       {next?.kind === "wait" ? (
@@ -153,5 +172,39 @@ function TvQueue({ room, engine }: { room: ActiveRoom; engine: AudioEngine }) {
       <JoinQr room={room} size={260} />
       {!live.connected && <p className="text-amber-300">Reconectando ao servidor…</p>}
     </Centered>
+  );
+}
+
+/** Between songs: the next singer, the song, its key and the QR, then a short countdown. */
+function BetweenSongs({
+  room,
+  entry,
+  left,
+  held,
+  connected,
+}: {
+  room: ActiveRoom;
+  entry: QueueEntry;
+  left: number;
+  held: boolean;
+  connected: boolean;
+}) {
+  const key = keyLabel(entry.song.original_key, entry.semitones);
+  return (
+    <main className="flex h-full flex-col items-center justify-center gap-12 px-8 lg:flex-row lg:gap-24">
+      <div className="flex max-w-3xl flex-col items-center gap-4 text-center lg:items-start lg:text-left">
+        <p className="text-2xl tracking-widest text-zinc-400 uppercase">Próxima</p>
+        <p className="text-6xl font-bold text-amber-300 md:text-7xl">{entry.singer_name ?? entry.added_by}</p>
+        <p className="text-3xl font-semibold md:text-4xl">{songTitle(entry.song)}</p>
+        <p className="text-xl text-zinc-400">
+          {entry.song.artist ?? entry.song.channel} · {key.current}
+        </p>
+        <p className="mt-6 text-5xl font-bold tabular-nums" aria-live="polite">
+          {held ? <span className="text-3xl text-zinc-400">Pausado pelo host</span> : `Começa em ${Math.max(left, 0)}`}
+        </p>
+        {!connected && <p className="text-amber-300">Reconectando ao servidor…</p>}
+      </div>
+      <JoinQr room={room} size={220} />
+    </main>
   );
 }

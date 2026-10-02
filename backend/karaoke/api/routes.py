@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import shutil
 import uuid
 from typing import Annotated
 
@@ -20,23 +21,41 @@ from karaoke.api import deps
 from karaoke.api.realtime import Connection, Hub
 from karaoke.api.schemas import (
     ActiveRoomOut,
+    DiskOut,
     EventIn,
     GuestOut,
+    JobOut,
     JoinIn,
     LoginIn,
+    LyricsIn,
+    PlayerValueIn,
     QueueEntryIn,
     QueueEntryOut,
     QueueEntryPatch,
+    ReprocessIn,
+    ReprocessOut,
     RoomIn,
     RoomOut,
     SearchResult,
+    SongEventOut,
     SongOut,
     TranscriptionIn,
 )
 from karaoke.core.auth import GUEST_COOKIE, HOST_COOKIE, hash_pin, new_guest_token, pin_matches
 from karaoke.core.config import Settings
 from karaoke.core.db import transaction
-from karaoke.core.models import AWAITING_DECISION, PLAYING, READY, Guest, QueueEntry, Room, Song
+from karaoke.core.models import (
+    AWAITING_DECISION,
+    PLAYING,
+    READY,
+    REMOVED,
+    Guest,
+    Job,
+    QueueEntry,
+    Room,
+    Song,
+    SongEvent,
+)
 from karaoke.core.permissions import Action, Actor, can
 from karaoke.core.songs import (
     BY_HOST,
@@ -48,6 +67,10 @@ from karaoke.core.songs import (
     move_entry,
     queue_rows,
     remove_entry,
+    remove_song,
+    replace_lyrics,
+    reprocess,
+    restore_song,
     skip_playing,
 )
 from karaoke.core.storage import VIDEO_ID
@@ -92,11 +115,16 @@ def song(request: Request, db: Sessions, video_id: str) -> SongOut:
 
 
 @api.get("/library")
-def library(request: Request, db: Sessions, q: Annotated[str | None, Query(max_length=200)] = None) -> list[SongOut]:
-    """The songs that play right away. Removed ones stay in the database but out of the library."""
+def library(
+    request: Request, db: Sessions, q: Annotated[str | None, Query(max_length=200)] = None, removed: bool = False
+) -> list[SongOut]:
+    """The songs that play right away. Removed ones stay in the database but out of the library; `removed=true`
+    lists them instead, for the host to restore."""
     with transaction(db) as session:
-        deps.require_actor(request, session)
-        query = select(Song).where(Song.status == READY)
+        actor = deps.require_actor(request, session)
+        if removed and not can(actor, Action.RESTORE_SONG):
+            raise HTTPException(403, "Só o host vê as músicas removidas.")
+        query = select(Song).where(Song.status == (REMOVED if removed else READY))
         for word in (q or "").split():
             pattern = f"%{word}%"
             query = query.where(or_(Song.title.ilike(pattern), Song.artist.ilike(pattern), Song.track.ilike(pattern)))
@@ -234,7 +262,7 @@ def change(request: Request, db: Sessions, code: str, entry_id: int, body: Queue
         playing = entry.status == PLAYING
     notify(hub(request).queue_changed, room.id)
     if playing and body.semitones is not None:
-        notify(hub(request).command, room.id, "key", body.semitones)
+        notify(hub(request).command, room.id, "key", {"semitones": body.semitones})
     return out
 
 
@@ -268,17 +296,27 @@ def transcription(request: Request, db: Sessions, code: str, entry_id: int, body
     notify(hub(request).queue_changed, None)  # every entry of the video changes, in any room
 
 
+PLAYER_VALUES = {"guide": (0.0, 100.0), "delay": (-2000.0, 2000.0)}  # % of the guide voice; TV delay in ms
+
+
 @api.post("/rooms/{code}/player/{action}", status_code=204)
-def player(request: Request, db: Sessions, code: str, action: str) -> None:
-    if action not in ("play", "pause", "skip"):
-        raise HTTPException(404, "Ação desconhecida: use play, pause ou skip.")
+def player(request: Request, db: Sessions, code: str, action: str, body: PlayerValueIn | None = None) -> None:
+    """play, pause, skip (between songs: the one about to start); guide and delay with {"value": ...}."""
+    if action not in ("play", "pause", "skip", *PLAYER_VALUES):
+        raise HTTPException(404, "Ação desconhecida: use play, pause, skip, guide ou delay.")
+    fields = None
+    if action in PLAYER_VALUES:
+        low, high = PLAYER_VALUES[action]
+        if body is None or not low <= body.value <= high:
+            raise HTTPException(422, f"Informe value entre {low:g} e {high:g}.")
+        fields = {"value": body.value}
     with transaction(db) as session:
         room, actor = deps.room_actor(request, session, code)
-        require(actor, Action.PLAYER)
+        require(actor, Action.PLAYER_SETTINGS if fields else Action.PLAYER)
         skipped = action == "skip" and skip_playing(session, room)
     if skipped:
         notify(hub(request).queue_changed, room.id)
-    notify(hub(request).command, room.id, action)
+    notify(hub(request).command, room.id, action, fields)
 
 
 @sockets.websocket("/ws/rooms/{code}")
@@ -313,6 +351,126 @@ async def room_socket(websocket: WebSocket, code: str, role: str | None = None) 
         pass
     finally:
         rooms.leave(connection)
+
+
+# --- the host's library and panel (phase 5) -----------------------------------------------------------------------
+
+def host_song(request: Request, session: Session, video_id: str, action: Action) -> tuple[Actor, Song]:
+    actor = deps.require_actor(request, session)
+    require(actor, action)
+    song = session.get(Song, video_id) if VIDEO_ID.match(video_id) else None
+    if song is None:
+        raise HTTPException(404, "Música não encontrada.")
+    return actor, song
+
+
+def conflict(fn, *args):
+    try:
+        return fn(*args)
+    except QueueError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@api.put("/songs/{video_id}/lyrics", status_code=204)
+def lyrics(request: Request, db: Sessions, settings: AppSettings, video_id: str, body: LyricsIn) -> None:
+    """The host's lyrics (LRC or plain); only the alignment runs again."""
+    with transaction(db) as session:
+        _, song = host_song(request, session, video_id, Action.REPROCESS)
+        conflict(replace_lyrics, session, settings, song, body.text)
+    notify(hub(request).queue_changed, None)
+
+
+@api.post("/songs/{video_id}/reprocess")
+def reprocess_song(request: Request, db: Sessions, video_id: str, body: ReprocessIn) -> ReprocessOut:
+    with transaction(db) as session:
+        _, song = host_song(request, session, video_id, Action.REPROCESS)
+        stages = conflict(reprocess, session, song, body.stages)
+    notify(hub(request).queue_changed, None)
+    return ReprocessOut(stages=stages)
+
+
+@api.delete("/songs/{video_id}", status_code=204)
+def remove_from_library(request: Request, db: Sessions, video_id: str) -> None:
+    """Marks the song as removed; the row, the files and the history stay."""
+    with transaction(db) as session:
+        _, song = host_song(request, session, video_id, Action.REMOVE_SONG)
+        conflict(remove_song, session, song, HOST)
+    notify(hub(request).queue_changed, None)
+
+
+@api.post("/songs/{video_id}/restore", status_code=204)
+def restore(request: Request, db: Sessions, settings: AppSettings, video_id: str) -> None:
+    """Undoes the removal with the files kept, without reprocessing."""
+    with transaction(db) as session:
+        _, song = host_song(request, session, video_id, Action.RESTORE_SONG)
+        conflict(restore_song, session, settings, song, HOST)
+    notify(hub(request).queue_changed, None)
+
+
+@api.get("/songs/{video_id}/history")
+def history(request: Request, db: Sessions, video_id: str) -> list[SongEventOut]:
+    with transaction(db) as session:
+        host_song(request, session, video_id, Action.REPROCESS)
+        rows = session.execute(
+            select(SongEvent, Guest.nickname)
+            .outerjoin(Guest, Guest.id == SongEvent.guest_id)
+            .where(SongEvent.video_id == video_id)
+            .order_by(SongEvent.id)
+        ).all()
+        return [
+            SongEventOut(
+                kind=event.kind,
+                by=nickname or ("host" if event.guest_id == HOST else "sistema"),
+                details=event.details,
+                created_at=event.created_at,
+            )
+            for event, nickname in rows
+        ]
+
+
+@api.get("/jobs")
+def jobs(request: Request, db: Sessions, limit: Annotated[int, Query(ge=1, le=200)] = 50) -> list[JobOut]:
+    """The jobs panel: the most recent first."""
+    with transaction(db) as session:
+        deps.require_host(request, session)
+        rows = session.execute(
+            select(Job, Song.title).join(Song, Song.video_id == Job.video_id).order_by(Job.id.desc()).limit(limit)
+        ).all()
+        return [
+            JobOut(
+                id=job.id, video_id=job.video_id, title=title, status=job.status, stage=job.stage,
+                progress=job.progress, attempts=job.attempts, options=job.options, error=job.error,
+                created_at=job.created_at, started_at=job.started_at, finished_at=job.finished_at,
+            )
+            for job, title in rows
+        ]
+
+
+LOW_DISK_BYTES = 10 * 1024**3  # about 150 songs of room left
+LOW_DISK_SHARE = 0.10
+
+
+def folder_bytes(path) -> int:
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) if path.exists() else 0
+
+
+@api.get("/disk")
+def disk(request: Request, db: Sessions, settings: AppSettings) -> DiskOut:
+    """The disk panel: ~65 MB per song, and removed songs keep their files."""
+    with transaction(db) as session:
+        deps.require_host(request, session)
+        statuses = dict(session.execute(select(Song.video_id, Song.status)).all())
+    usage = shutil.disk_usage(settings.data_dir)
+    removed = [video_id for video_id, status in statuses.items() if status == REMOVED]
+    return DiskOut(
+        total_bytes=usage.total,
+        free_bytes=usage.free,
+        media_bytes=folder_bytes(settings.media_dir),
+        songs=len(statuses),
+        removed_songs=len(removed),
+        removed_bytes=sum(folder_bytes(settings.media_dir / video_id) for video_id in removed),
+        low=usage.free < LOW_DISK_BYTES or usage.free < LOW_DISK_SHARE * usage.total,
+    )
 
 
 # --- worker → API --------------------------------------------------------------------------------------------------

@@ -1,6 +1,8 @@
 """Request and response bodies of the REST API (docs/ARCHITECTURE.md, "API REST")."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, Field, field_validator
 
 from karaoke.core.models import READY, QueueEntry, Song
@@ -162,3 +164,51 @@ class EventIn(BaseModel):
 
     type: str
     video_id: str
+
+
+class PlayerValueIn(BaseModel):
+    value: float  # guide: 0 to 100 (%); delay: milliseconds
+
+
+class LyricsIn(BaseModel):
+    text: str = Field(min_length=1, max_length=20000)  # LRC, with [mm:ss] times, or plain text
+
+
+class ReprocessIn(BaseModel):
+    stages: list[str] = Field(default_factory=list)  # empty: resume or retry from the first unfinished stage
+
+
+class ReprocessOut(BaseModel):
+    stages: list[str]  # what will run again, the dependent stages included
+
+
+class SongEventOut(BaseModel):
+    kind: str
+    by: str  # a nickname, "host" or "sistema"
+    details: dict | None
+    created_at: datetime
+
+
+class JobOut(BaseModel):
+    id: int
+    video_id: str
+    title: str | None
+    status: str
+    stage: str | None
+    progress: float
+    attempts: int
+    options: dict
+    error: str | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+
+
+class DiskOut(BaseModel):
+    total_bytes: int
+    free_bytes: int
+    media_bytes: int  # everything under media/
+    songs: int
+    removed_songs: int
+    removed_bytes: int  # removed songs keep their files
+    low: bool  # the host panel warns

@@ -5,7 +5,7 @@ import type { QueueEntry } from "../api";
 import type { Progress } from "../lib/queue";
 
 export type PlayerState = { entry_id: number | null; position: number; paused: boolean; semitones: number };
-export type Command = { action: "play" | "pause" | "skip" | "key"; semitones?: number };
+export type Command = { action: "play" | "pause" | "skip" | "key" | "guide" | "delay"; semitones?: number; value?: number };
 
 const GONE = new Set([4401, 4403, 4404]); // no cookie, another room, room closed: reconnecting won't help
 

@@ -24,14 +24,20 @@ docker compose up -d --build
 
 Sobem três serviços: `caddy` (porta 8080, a única exposta, com o frontend compilado na imagem), `api` e `worker` (com a GPU). O banco SQLite e as músicas ficam no volume `karaoke-data`.
 
-## Uma noite de karaokê (fase 4)
+## Uma noite de karaokê
 
 1. No `.env`, defina `HOST_PIN` e `PUBLIC_BASE_URL=http://<IP do PC>:8080` (o endereço que os celulares usam).
 2. Em `http://<IP do PC>:8080/host`, entre com o PIN e abra a sala da noite.
 3. No PC ligado à TV, abra `http://<IP do PC>:8080/tv`, entre com o PIN e toque em **Iniciar**. A TV mostra o QR Code.
 4. Cada convidado lê o QR, escolhe um apelido, busca e adiciona músicas, já no tom em que quer começar. A fila toca em ordem, sozinha.
 
-Na TV, os botões **−½ tom**, **+½ tom** e **Voltar ao tom original** mudam o tom ao vivo (as setas ↑ e ↓ também; espaço pausa). O dono de cada música muda o tom dela pelo celular, e só ele (ou o host) pode removê-la. Quando a letra não é encontrada, o celular do dono pergunta se ela deve ser transcrita; um "não" tira a música da fila sem baixar nada. No `/host`, o host reordena a fila, remove qualquer música e toca, pausa ou pula.
+Na TV, os botões **−½ tom**, **+½ tom** e **Voltar ao tom original** mudam o tom ao vivo (as setas ↑ e ↓ também; espaço pausa). O dono de cada música muda o tom dela pelo celular, e só ele (ou o host) pode removê-la. Quando a letra não é encontrada, o celular do dono pergunta se ela deve ser transcrita; um "não" tira a música da fila sem baixar nada. Entre uma música e outra, a TV mostra o próximo cantor, a música, o tom e o QR, e a próxima começa depois de 5 s.
+
+O `/host` tem três abas:
+
+- **Sala:** abrir a sala, tocar, pausar e pular (entre músicas, pular passa a próxima), voz guia e atraso da TV, e a fila, para reordenar, remover e tentar de novo uma música que falhou.
+- **Acervo:** trocar a letra (colando LRC ou texto; só o alinhamento roda de novo), reprocessar etapas, remover e desfazer a remoção, e ver o histórico de cada música.
+- **Painel:** os jobs, com "Tentar de novo" para os que falharam, e o disco, com aviso quando o espaço estiver acabando.
 
 Para mexer no frontend sem reconstruir a imagem, com a pilha no ar:
 

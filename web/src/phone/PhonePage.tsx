@@ -1,15 +1,17 @@
-// /m/<code>: the guest's phone. Search YouTube, add songs (with the key they start in), follow the queue, change the
+// /m/<code>: the guest's phone. Search YouTube or the library, add songs (with the key they start in), follow the queue, change the
 // key of one's own entries, remove them and answer the transcription question.
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { api, type SearchResult } from "../api";
 import { clampSemitones, MAX_SEMITONES, MIN_SEMITONES, signed } from "../lib/keys";
+import { songTitle } from "../lib/queue";
 import { QueueList } from "../room/QueueList";
 import { useRoom } from "../room/useRoom";
 import { formatTime } from "../tv/time";
 import { loadNickname } from "./identity";
 
-type Tab = "queue" | "search";
+type Tab = "queue" | "search" | "library";
+const TAB_NAMES: Record<Tab, string> = { search: "Buscar", library: "Acervo", queue: "Fila" };
 
 export function PhonePage({ code }: { code: string }) {
   const room = useRoom(code);
@@ -21,6 +23,11 @@ export function PhonePage({ code }: { code: string }) {
     if (room.closedWith === 4401 || room.closedWith === 4403) location.replace(`/j/${code}`);
   }, [room.closedWith, code]);
 
+  const added = (title: string) => {
+    setNotice(`"${title}" entrou na fila.`);
+    setTab("queue");
+    window.setTimeout(() => setNotice(null), 4000);
+  };
   const waiting = room.entries?.filter((e) => e.mine && e.status === "awaiting_decision").length ?? 0;
 
   if (room.closedWith === 4404) {
@@ -36,14 +43,15 @@ export function PhonePage({ code }: { code: string }) {
             {!room.connected && " · reconectando…"}
           </span>
         </div>
-        <nav className="mt-3 grid grid-cols-2 gap-2 pb-3">
-          {(["search", "queue"] as const).map((t) => (
+        <nav className="mt-3 grid grid-cols-3 gap-2 pb-3">
+          {(["search", "library", "queue"] as const).map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={`rounded-lg py-2 font-semibold ${tab === t ? "bg-amber-400 text-zinc-950" : "bg-zinc-900 text-zinc-300"}`}
             >
-              {t === "search" ? "Buscar" : `Fila${room.entries ? ` (${room.entries.length})` : ""}`}
+              {TAB_NAMES[t]}
+              {t === "queue" && room.entries ? ` (${room.entries.length})` : ""}
             </button>
           ))}
         </nav>
@@ -56,14 +64,9 @@ export function PhonePage({ code }: { code: string }) {
       </header>
       <main className="flex-1 px-4 pb-8">
         {tab === "search" ? (
-          <Search
-            code={code}
-            onAdded={(title) => {
-              setNotice(`"${title}" entrou na fila.`);
-              setTab("queue");
-              window.setTimeout(() => setNotice(null), 4000);
-            }}
-          />
+          <Search code={code} onAdded={added} />
+        ) : tab === "library" ? (
+          <Library code={code} onAdded={added} />
         ) : room.entries ? (
           <QueueList code={code} entries={room.entries} progress={room.progress} isHost={false} />
         ) : (
@@ -126,7 +129,54 @@ function Search({ code, onAdded }: { code: string; onAdded: (title: string) => v
   );
 }
 
-function AddForm({ code, result, onAdded }: { code: string; result: SearchResult; onAdded: (title: string) => void }) {
+/** The songs that play right away, already processed. */
+function Library({ code, onAdded }: { code: string; onAdded: (title: string) => void }) {
+  const [q, setQ] = useState("");
+  const [picked, setPicked] = useState<string | null>(null);
+  const songs = useQuery({ queryKey: ["library", q], queryFn: () => api.library(q) });
+  return (
+    <div className="flex flex-col gap-4">
+      <input
+        className="rounded-lg border border-zinc-700 bg-zinc-900 px-4 py-2.5 outline-none focus:border-amber-400"
+        placeholder="Filtrar por música ou artista"
+        value={q}
+        onChange={(event) => setQ(event.target.value)}
+        aria-label="Filtrar o acervo"
+      />
+      {songs.isError && <p className="text-red-400">{songs.error.message}</p>}
+      {songs.data?.length === 0 && <p className="text-zinc-400">Nenhuma música pronta{q ? " com esse nome" : ""}.</p>}
+      <ul className="flex flex-col gap-2">
+        {songs.data?.map((song) => (
+          <li key={song.video_id} className="rounded-xl bg-zinc-900 p-3">
+            <button className="flex w-full gap-3 text-left" onClick={() => setPicked(picked === song.video_id ? null : song.video_id)}>
+              <img src={song.thumbnail_url ?? undefined} alt="" className="h-14 w-24 shrink-0 rounded-lg object-cover" />
+              <span className="min-w-0">
+                <span className="block truncate font-semibold">{songTitle(song)}</span>
+                <span className="block truncate text-sm text-zinc-400">
+                  {song.artist ?? song.channel}
+                  {song.duration_s ? ` · ${formatTime(song.duration_s)}` : ""}
+                </span>
+              </span>
+            </button>
+            {picked === song.video_id && (
+              <AddForm code={code} result={{ video_id: song.video_id, title: songTitle(song) }} onAdded={onAdded} />
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function AddForm({
+  code,
+  result,
+  onAdded,
+}: {
+  code: string;
+  result: Pick<SearchResult, "video_id" | "title">;
+  onAdded: (title: string) => void;
+}) {
   const [singer, setSinger] = useState(loadNickname);
   const [semitones, setSemitones] = useState(0);
   const add = useMutation({

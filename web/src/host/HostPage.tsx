@@ -1,10 +1,12 @@
-// /host: the host opens tonight's room and runs the queue and the player. The panel of jobs, disk and library comes
-// in phase 5.
+// /host: the host opens tonight's room and runs the queue and the player; manages the library; and watches the jobs
+// and the disk.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { ApiError, type ActiveRoom, api } from "../api";
 import { songTitle } from "../lib/queue";
 import { HostLogin } from "../room/HostLogin";
+import { LibraryAdmin } from "./LibraryAdmin";
+import { Panel } from "./Panel";
 import { QueueList } from "../room/QueueList";
 import { useRoom } from "../room/useRoom";
 import { formatTime } from "../tv/time";
@@ -20,17 +22,39 @@ export function HostPage() {
     return <HostLogin title="Host do karaokê" onDone={() => void queryClient.invalidateQueries({ queryKey: ["active-room"] })} />;
   }
   if (active.isPending) return <p className="p-8 text-zinc-400">Carregando…</p>;
+  return <HostTabs active={active.data ?? null} missing={status === 404} error={active.error?.message ?? null} />;
+}
+
+type Tab = "room" | "library" | "panel";
+const TABS: [Tab, string][] = [["room", "Sala"], ["library", "Acervo"], ["panel", "Painel"]];
+
+function HostTabs({ active, missing, error }: { active: ActiveRoom | null; missing: boolean; error: string | null }) {
+  const queryClient = useQueryClient();
+  const [tab, setTab] = useState<Tab>("room");
   return (
     <main className="mx-auto flex max-w-3xl flex-col gap-6 px-4 py-6">
-      <h1 className="text-2xl font-bold">Host do karaokê</h1>
-      {active.data ? (
-        <Room room={active.data} />
-      ) : status === 404 ? (
-        <p className="text-zinc-400">Nenhuma sala aberta.</p>
-      ) : (
-        <p className="text-red-400">{active.error?.message}</p>
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-bold">Host do karaokê</h1>
+        <nav className="flex gap-2">
+          {TABS.map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`rounded-lg px-4 py-2 font-semibold ${tab === id ? "bg-amber-400 text-zinc-950" : "bg-zinc-900 text-zinc-300"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </nav>
+      </header>
+      {tab === "library" && <LibraryAdmin />}
+      {tab === "panel" && <Panel />}
+      {tab === "room" && (
+        <>
+          {active ? <Room room={active} /> : missing ? <p className="text-zinc-400">Nenhuma sala aberta.</p> : <p className="text-red-400">{error}</p>}
+          <OpenRoom replacing={Boolean(active)} onOpened={() => void queryClient.invalidateQueries({ queryKey: ["active-room"] })} />
+        </>
       )}
-      <OpenRoom replacing={Boolean(active.data)} onOpened={() => void queryClient.invalidateQueries({ queryKey: ["active-room"] })} />
     </main>
   );
 }
@@ -38,9 +62,14 @@ export function HostPage() {
 function OpenRoom({ replacing, onOpened }: { replacing: boolean; onOpened: () => void }) {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (replacing && !confirm("Abrir uma sala nova encerra a atual: o QR antigo para de funcionar. Continuar?")) return;
+    if (replacing && !asking) {
+      setAsking(true); // a second tap confirms; see ConfirmButton for why there is no window.confirm()
+      return;
+    }
+    setAsking(false);
     try {
       await api.openRoom(name.trim());
       setName("");
@@ -58,7 +87,15 @@ function OpenRoom({ replacing, onOpened }: { replacing: boolean; onOpened: () =>
         value={name}
         onChange={(event) => setName(event.target.value)}
       />
-      <button className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950">{replacing ? "Abrir sala nova" : "Abrir sala"}</button>
+      <button className={`rounded-lg px-4 py-2 font-bold ${asking ? "bg-red-600 text-white" : "bg-amber-400 text-zinc-950"}`}>
+        {asking ? "Confirmar: encerra a sala atual" : replacing ? "Abrir sala nova" : "Abrir sala"}
+      </button>
+      {asking && (
+        <button type="button" className="rounded-lg bg-zinc-800 px-4 py-2 font-semibold" onClick={() => setAsking(false)}>
+          Cancelar
+        </button>
+      )}
+      {asking && <p className="w-full text-sm text-zinc-400">A sala atual será encerrada e o QR antigo para de funcionar.</p>}
       {error && <p className="w-full text-sm text-red-400">{error}</p>}
     </form>
   );
@@ -110,6 +147,7 @@ function Room({ room }: { room: ActiveRoom }) {
             Pular
           </button>
         </div>
+        <TvSettings code={room.code} onError={setError} />
         {error && <p className="text-sm text-red-400">{error}</p>}
       </section>
 
@@ -122,5 +160,58 @@ function Room({ room }: { room: ActiveRoom }) {
         )}
       </section>
     </>
+  );
+}
+
+/** Guide voice and the TV's delay, sent to the TV as player.command. */
+function TvSettings({ code, onError }: { code: string; onError: (message: string | null) => void }) {
+  const [guide, setGuide] = useState(0);
+  const [delay, setDelay] = useState(0);
+  const send = async (action: "guide" | "delay", value: number) => {
+    onError(null);
+    try {
+      await api.playerValue(code, action, value);
+    } catch (e) {
+      onError((e as Error).message);
+    }
+  };
+  return (
+    <div className="flex flex-wrap items-center gap-6 text-sm text-zinc-300">
+      <label className="flex items-center gap-3">
+        Voz guia
+        <input
+          type="range"
+          className="w-32 accent-amber-400"
+          min={0}
+          max={100}
+          step={5}
+          value={guide}
+          onChange={(event) => setGuide(Number(event.target.value))}
+          onPointerUp={() => send("guide", guide)}
+          onKeyUp={() => send("guide", guide)}
+        />
+        <span className="w-10 tabular-nums">{guide}%</span>
+      </label>
+      <div className="flex items-center gap-2">
+        Atraso da letra na TV
+        {[-50, 50].map((step) => (
+          <button
+            key={step}
+            className={button}
+            onClick={() => {
+              const value = delay + step;
+              setDelay(value);
+              void send("delay", value);
+            }}
+          >
+            {step < 0 ? "−" : "+"}
+          </button>
+        ))}
+        <span className="w-16 tabular-nums">
+          {delay > 0 ? "+" : ""}
+          {delay} ms
+        </span>
+      </div>
+    </div>
   );
 }

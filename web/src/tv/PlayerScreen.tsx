@@ -125,16 +125,23 @@ export function PlayerScreen({
     }
   };
   const changeKey = (n: number) => onSemitones(clampSemitones(n));
+  const changeGuide = (percent: number) => {
+    setGuide(percent);
+    engine.setGuide(percent / 100);
+  };
   const changeDelay = (ms: number) => {
     setDelayMs(ms);
     saveDelay(ms);
   };
 
-  // Commands from the host (play, pause); skip and key are handled by the queue around this screen.
+  // Commands from the host (play, pause, guide voice, delay); skip and key are handled by the queue around this screen.
   commands.current = (command) => {
     if (command.action === "play") void togglePlay(true);
     else if (command.action === "pause") void togglePlay(false);
+    else if (command.action === "guide" && command.value !== undefined) changeGuide(command.value);
+    else if (command.action === "delay" && command.value !== undefined) changeDelay(command.value);
   };
+  useEffect(() => () => void (commands.current = null), [commands]);
 
   // Keyboard, for a TV with a remote or a keyboard: space plays and pauses, arrows change the key.
   const keys = useRef({ togglePlay, changeKey, semitones });
@@ -230,11 +237,7 @@ export function PlayerScreen({
                 max={100}
                 step={5}
                 value={guide}
-                onChange={(event) => {
-                  const value = Number(event.target.value);
-                  setGuide(value);
-                  engine.setGuide(value / 100);
-                }}
+                onChange={(event) => changeGuide(Number(event.target.value))}
               />
               <span className="w-12 tabular-nums">{guide}%</span>
             </label>

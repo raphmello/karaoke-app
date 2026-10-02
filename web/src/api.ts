@@ -40,6 +40,31 @@ export type SearchResult = {
   in_library: boolean;
 };
 
+export type SongEvent = { kind: string; by: string; details: Record<string, unknown> | null; created_at: string };
+export type Job = {
+  id: number;
+  video_id: string;
+  title: string | null;
+  status: string; // pending, running, done, failed
+  stage: string | null;
+  progress: number;
+  attempts: number;
+  options: { transcribe?: boolean; redo?: string[] };
+  error: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+};
+export type Disk = {
+  total_bytes: number;
+  free_bytes: number;
+  media_bytes: number;
+  songs: number;
+  removed_songs: number;
+  removed_bytes: number;
+  low: boolean;
+};
+
 export type Room = { code: string; name: string | null; join_path: string };
 export type ActiveRoom = Room & { public_base_url: string };
 export type Guest = { id: string; nickname: string; room_code: string };
@@ -76,10 +101,11 @@ const send = (method: string, body?: unknown): RequestInit => ({
   body: body === undefined ? undefined : JSON.stringify(body),
 });
 const room = (code: string) => `/api/rooms/${encodeURIComponent(code)}`;
+const song = (videoId: string) => `/api/songs/${encodeURIComponent(videoId)}`;
 
 export const api = {
   search: (q: string) => request<SearchResult[]>(`/api/search?q=${encodeURIComponent(q)}`),
-  song: (videoId: string) => request<Song>(`/api/songs/${encodeURIComponent(videoId)}`),
+  song: (videoId: string) => request<Song>(song(videoId)),
   hostLogin: (pin: string) => request<void>("/api/host/login", send("POST", { pin })),
   activeRoom: () => request<ActiveRoom>("/api/rooms/active"),
   openRoom: (name: string) => request<Room>("/api/rooms", send("POST", { name: name || null })),
@@ -94,6 +120,18 @@ export const api = {
     request<void>(`${room(code)}/queue/${id}/transcription`, send("POST", { accept })),
   player: (code: string, action: "play" | "pause" | "skip") =>
     request<void>(`${room(code)}/player/${action}`, send("POST")),
+  playerValue: (code: string, action: "guide" | "delay", value: number) =>
+    request<void>(`${room(code)}/player/${action}`, send("POST", { value })),
+  library: (q: string, removed = false) =>
+    request<Song[]>(`/api/library?q=${encodeURIComponent(q)}${removed ? "&removed=true" : ""}`),
+  replaceLyrics: (videoId: string, text: string) => request<void>(`${song(videoId)}/lyrics`, send("PUT", { text })),
+  reprocess: (videoId: string, stages: string[]) =>
+    request<{ stages: string[] }>(`${song(videoId)}/reprocess`, send("POST", { stages })),
+  removeSong: (videoId: string) => request<void>(song(videoId), send("DELETE")),
+  restoreSong: (videoId: string) => request<void>(`${song(videoId)}/restore`, send("POST")),
+  history: (videoId: string) => request<SongEvent[]>(`${song(videoId)}/history`),
+  jobs: () => request<Job[]>("/api/jobs"),
+  disk: () => request<Disk>("/api/disk"),
 };
 
 /** The aligned lyrics, served from the volume; null when the song has none. */

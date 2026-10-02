@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api, type QueueEntry } from "../api";
 import { clampSemitones, keyLabel, MAX_SEMITONES, MIN_SEMITONES } from "../lib/keys";
 import { type Progress, songTitle, statusText } from "../lib/queue";
+import { ConfirmButton } from "./ConfirmButton";
 
 const small = "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-semibold hover:bg-zinc-700 disabled:opacity-40";
 
@@ -114,15 +115,20 @@ export function QueueList({
                   </button>
                     </>
                   )}
-                  <button
-                    className={`${small} ml-auto text-red-300`}
-                    onClick={() => {
-                      if (confirm(`Remover "${songTitle(entry.song)}" da fila?`)) void run(() => api.remove(code, entry.id));
-                    }}
-                  >
-                    Remover
-                  </button>
+                  <span className="ml-auto">
+                    <ConfirmButton
+                      className={`${small} text-red-300`}
+                      label="Remover"
+                      confirmLabel={entry.status === "playing" ? "Remover e pular" : "Confirmar remoção"}
+                      onConfirm={() => void run(() => api.remove(code, entry.id))}
+                    />
+                  </span>
                 </div>
+              )}
+              {isHost && entry.song.status === "failed" && (
+                <button className={`${small} mt-2`} onClick={() => run(() => api.reprocess(entry.video_id, []))}>
+                  Tentar processar de novo
+                </button>
               )}
               {!mayEdit && <p className="mt-2 text-xs text-zinc-500">{key.current}</p>}
             </li>

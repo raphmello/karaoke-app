@@ -66,12 +66,10 @@ class Hub:
         for room_id in list(self.rooms):
             await self.send(room_id, message)
 
-    async def command(self, room_id: int, action: str, semitones: int | None = None) -> None:
-        """player.command, to the TV only: play, pause, skip, or key (with the entry's new semitones)."""
-        message = {"type": "player.command", "action": action}
-        if semitones is not None:
-            message["semitones"] = semitones
-        await self.send(room_id, message, to=lambda c: c.tv)
+    async def command(self, room_id: int, action: str, fields: dict | None = None) -> None:
+        """player.command, to the TV only: play, pause, skip; key with the entry's semitones; guide and delay with
+        their value."""
+        await self.send(room_id, {"type": "player.command", "action": action, **(fields or {})}, to=lambda c: c.tv)
 
     def _rows(self, room_id: int) -> Rows:
         with transaction(self.sessions) as session:

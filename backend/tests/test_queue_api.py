@@ -1,84 +1,12 @@
 """Phase 4 through the API: changing, removing, the transcription answer, the player and the room's WebSocket."""
 import pytest
-from fastapi.testclient import TestClient
-from helpers import PIN
 from sqlalchemy import select
 from starlette.websockets import WebSocketDisconnect
 
-from karaoke.api.app import create_app
-from karaoke.core.db import make_engine, make_sessionmaker, transaction
+from karaoke.core.db import transaction
 from karaoke.core.models import Job, QueueEntry, Song, SongEvent
 
 VIDEO, OTHER_VIDEO = "dQw4w9WgXcQ", "aaaaaaaaaaa"
-
-
-class Caller:
-    """One person (the host or a phone), with their own cookie, on the shared client.
-
-    Everything goes through one TestClient so the API runs on one event loop, as under uvicorn; separate clients
-    would each run their own, and the hub would send across loops."""
-
-    def __init__(self, client: TestClient, cookie: str):
-        self.client, self.headers = client, {"cookie": cookie}
-
-    def get(self, path, **kw):
-        return self.client.get(path, headers=self.headers, **kw)
-
-    def post(self, path, **kw):
-        return self.client.post(path, headers=self.headers, **kw)
-
-    def patch(self, path, **kw):
-        return self.client.patch(path, headers=self.headers, **kw)
-
-    def delete(self, path, **kw):
-        return self.client.delete(path, headers=self.headers, **kw)
-
-    def websocket_connect(self, path):
-        return self.client.websocket_connect(path, headers=self.headers)
-
-
-def cookie_of(response) -> str:
-    return "; ".join(f"{name}={value}" for name, value in response.cookies.items())
-
-
-@pytest.fixture
-def app(settings):
-    return create_app(settings, search=lambda q: [])
-
-
-@pytest.fixture
-def client(app):
-    with TestClient(app) as client:  # runs the lifespan; never logs in itself, so its cookie jar stays empty
-        yield client
-
-
-@pytest.fixture
-def host(app, client):
-    login = TestClient(app).post("/api/host/login", json={"pin": PIN})
-    assert login.status_code == 204
-    return Caller(client, cookie_of(login))
-
-
-@pytest.fixture
-def code(host):
-    return host.post("/api/rooms", json={"name": "Sexta"}).json()["code"]
-
-
-@pytest.fixture
-def db(settings, client):
-    engine = make_engine(settings.database_url)
-    yield make_sessionmaker(engine)
-    engine.dispose()
-
-
-@pytest.fixture
-def phone(app, client):
-    def join(code, nickname) -> Caller:
-        response = TestClient(app).post(f"/api/rooms/{code}/join", json={"nickname": nickname})
-        assert response.status_code == 200
-        return Caller(client, cookie_of(response))
-
-    return join
 
 
 def add(caller, code, video=VIDEO, **body):

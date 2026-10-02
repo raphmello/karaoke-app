@@ -28,7 +28,7 @@ from karaoke.core.models import (
     SongEvent,
     utcnow,
 )
-from karaoke.core.storage import VIDEO_ID, Manifest, SongFolder, read_json
+from karaoke.core.storage import VIDEO_ID, Manifest, SongFolder, read_json, write_json
 
 HOST = "host"  # song_events.guest_id when the host did it
 
@@ -188,14 +188,106 @@ def set_playing(session: Session, room: Room, entry_id: int | None) -> bool:
 
 
 def skip_playing(session: Session, room: Room) -> bool:
-    """The host skips the song that is playing. True when there was one."""
-    playing = session.scalar(
+    """The host skips the song that is playing; between songs, during the countdown, the one about to start (the
+    first entry in the queue whose song is ready, as the TV picks it). True when something was skipped."""
+    target = session.scalar(
         select(QueueEntry).where(QueueEntry.room_id == room.id, QueueEntry.status == PLAYING)
-    )
-    if playing is None:
+    ) or next((e for e, song, _ in queue_rows(session, room) if e.status == QUEUED and song.status == READY), None)
+    if target is None:
         return False
-    playing.status, playing.ended_at = SKIPPED, utcnow()
+    target.status, target.ended_at = SKIPPED, utcnow()
     return True
+
+
+# --- the host's library (phase 5) ---------------------------------------------------------------------------------
+
+# The `process` job's stages, in order (karaoke.pipeline.process.default_stages), and what each one reads.
+STAGES = ("metadata", "lyrics", "download", "separation", "language", "alignment", "key", "encode")
+NEEDS = {
+    "lyrics": {"metadata"},
+    "separation": {"download"},
+    "language": {"lyrics"},
+    "alignment": {"lyrics", "language", "separation"},
+    "key": {"separation"},
+    "encode": {"separation"},
+}
+
+
+def with_dependents(stages: set[str]) -> list[str]:
+    """The stages asked for plus every stage that reads their output, in pipeline order: redoing the separation
+    without the alignment would leave words timed against the old voice."""
+    redo = set(stages)
+    for stage in STAGES:
+        if NEEDS.get(stage, set()) & redo:
+            redo.add(stage)
+    return [stage for stage in STAGES if stage in redo]
+
+
+def reprocess(session: Session, song: Song, stages: list[str]) -> list[str]:
+    """A job that redoes the chosen stages (and those that depend on them). No stages: the job resumes from the
+    first unfinished stage, which is how a failed song is tried again."""
+    unknown = set(stages) - set(STAGES)
+    if unknown:
+        raise QueueError(f"Etapas desconhecidas: {', '.join(sorted(unknown))}.")
+    if song.status == REMOVED:
+        raise QueueError("A música está removida. Desfaça a remoção antes.")
+    redo = with_dependents(set(stages))
+    if not ensure_job(session, song.video_id, {"redo": redo} if redo else None):
+        raise QueueError("Esta música já está sendo processada.")
+    song.status, song.error = PENDING, None
+    return redo
+
+
+def replace_lyrics(session: Session, settings: Settings, song: Song, text: str) -> None:
+    """The host pastes lyrics: LRC (with [mm:ss] times) or plain text. Only the language and the alignment run
+    again; a song that was waiting for the transcription answer goes on to download, with these lyrics."""
+    from karaoke.pipeline.lyrics import parse_lrc
+
+    if song.status == REMOVED:
+        raise QueueError("A música está removida. Desfaça a remoção antes.")
+    synced = parse_lrc(text)
+    lines = synced or [{"t": None, "text": line.strip()} for line in text.splitlines() if line.strip()]
+    if not any(line["text"] for line in lines):
+        raise QueueError("A letra está vazia.")
+    # The job first: if one is already running, nothing on disk changes under it.
+    if not ensure_job(session, song.video_id, {"redo": ["language", "alignment"]}):
+        raise QueueError("Esta música já está sendo processada; troque a letra quando o job terminar.")
+    folder = SongFolder(settings.media_dir, song.video_id)
+    write_json(folder.lyrics_source, {"source": "manual", "synced": bool(synced), "lines": lines})
+    manifest = Manifest.load(folder)
+    previous = manifest.info("lyrics")
+    manifest.complete("lyrics", {
+        "found": True, "source": "manual", "synced": bool(synced),
+        "lines": sum(1 for line in lines if line["text"]),
+        "artist": previous.get("artist"), "track": previous.get("track"),
+    })
+    if song.status == AWAITING_DECISION:
+        session.execute(
+            update(QueueEntry)
+            .where(QueueEntry.video_id == song.video_id, QueueEntry.status == AWAITING_DECISION)
+            .values(status=QUEUED)
+        )
+    song.status, song.error, song.lyrics_source = PENDING, None, "manual"
+
+
+def remove_song(session: Session, song: Song, by: str) -> None:
+    """Logical removal from the library: the row, the files and the history stay. Its entries waiting in the queue
+    leave it too; one that is playing finishes."""
+    if song.status == REMOVED:
+        raise QueueError("A música já está removida.")
+    song.status, song.removed_at, song.removed_reason = REMOVED, utcnow(), BY_HOST
+    session.execute(
+        update(QueueEntry)
+        .where(QueueEntry.video_id == song.video_id, QueueEntry.status.in_((QUEUED, AWAITING_DECISION)))
+        .values(status=REMOVED, removed_reason=BY_HOST, ended_at=utcnow())
+    )
+    record(session, song.video_id, "removed", by, {"reason": BY_HOST})
+
+
+def restore_song(session: Session, settings: Settings, song: Song, by: str) -> None:
+    if song.status != REMOVED:
+        raise QueueError("A música não está removida.")
+    reactivate(session, settings, song, by)
 
 
 def hold_for_decision(session: Session, video_id: str) -> list[int]:

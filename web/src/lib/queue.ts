@@ -19,7 +19,8 @@ export function nextEntry(entries: QueueEntry[]): Next {
   return { kind: "empty" };
 }
 
-const STAGES: Record<string, string> = {
+/** The pipeline's stages, in order, as the screens name them. */
+export const STAGE_NAMES: Record<string, string> = {
   metadata: "Buscando os dados",
   lyrics: "Buscando a letra",
   download: "Baixando o áudio",
@@ -40,7 +41,7 @@ export function statusText(entry: QueueEntry, progress: Progress): string {
   if (song.status === "failed") return `Erro no processamento${song.error ? `: ${song.error}` : ""}`;
   const live = progress[entry.video_id];
   const stage = live?.stage ?? song.stage;
-  if (stage) return `${STAGES[stage] ?? stage}${live ? ` · ${live.progress}%` : ""}`;
+  if (stage) return `${STAGE_NAMES[stage] ?? stage}${live ? ` · ${live.progress}%` : ""}`;
   return "Na fila para processar";
 }
 
