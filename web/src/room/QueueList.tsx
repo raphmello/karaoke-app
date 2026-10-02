@@ -59,7 +59,10 @@ export function QueueList({
               <div className="flex gap-3">
                 <img src={entry.song.thumbnail_url ?? undefined} alt="" className="h-14 w-24 shrink-0 rounded-lg object-cover" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-semibold">{songTitle(entry.song)}</p>
+                  <p className="truncate font-semibold">
+                    {songTitle(entry.song)}
+                    {entry.song.artist && <span className="font-normal text-zinc-400"> · {entry.song.artist}</span>}
+                  </p>
                   <p className="truncate text-sm text-zinc-400">
                     {entry.singer_name ?? entry.added_by}
                     {entry.mine ? " · sua" : ""}

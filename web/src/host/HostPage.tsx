@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { ApiError, type ActiveRoom, api } from "../api";
 import { songTitle } from "../lib/queue";
+import { Library, Search } from "../room/AddSongs";
 import { HostLogin } from "../room/HostLogin";
 import { LibraryAdmin } from "./LibraryAdmin";
 import { Panel } from "./Panel";
@@ -151,6 +152,8 @@ function Room({ room }: { room: ActiveRoom }) {
         {error && <p className="text-sm text-red-400">{error}</p>}
       </section>
 
+      <AddSong code={room.code} />
+
       <section>
         <h2 className="mb-3 text-lg font-semibold">Fila</h2>
         {live.entries ? (
@@ -213,5 +216,35 @@ function TvSettings({ code, onError }: { code: string; onError: (message: string
         </span>
       </div>
     </div>
+  );
+}
+
+/** The host adds songs like a guest does: from a YouTube search or from the library. */
+function AddSong({ code }: { code: string }) {
+  const [source, setSource] = useState<"search" | "library">("search");
+  const [notice, setNotice] = useState<string | null>(null);
+  const added = (title: string) => {
+    setNotice(`"${title}" entrou na fila.`);
+    window.setTimeout(() => setNotice(null), 4000);
+  };
+  return (
+    <section className="flex flex-col gap-3 rounded-xl bg-zinc-900 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-lg font-semibold">Adicionar música</h2>
+        <div className="flex gap-2">
+          {([["search", "Buscar no YouTube"], ["library", "Acervo"]] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setSource(id)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${source === id ? "bg-amber-400 text-zinc-950" : "bg-zinc-800 text-zinc-300"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {notice && <p className="rounded-lg bg-emerald-950 px-3 py-2 text-sm text-emerald-200">{notice}</p>}
+      {source === "search" ? <Search code={code} onAdded={added} /> : <Library code={code} onAdded={added} />}
+    </section>
   );
 }
