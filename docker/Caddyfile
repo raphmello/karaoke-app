@@ -18,8 +18,14 @@
 	}
 
 	# The frontend, built into the image. Routes like /tv are the app's own: they all get index.html.
+	# index.html is always revalidated, so an update reaches the TV and the phones on the next load; the
+	# bundles in /assets carry a hash in their names and never change.
 	handle {
 		root * /srv/web
+		@assets path /assets/*
+		@pages not path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header @pages Cache-Control "no-cache"
 		try_files {path} /index.html
 		file_server
 	}
