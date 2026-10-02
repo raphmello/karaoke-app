@@ -130,6 +130,8 @@ karaoke-app/
 
 Cada `video_id` é processado no máximo uma vez. Tudo o que o pipeline produz fica em `media/<video_id>/` e é reutilizado sempre que o vídeo voltar à fila.
 
+**Duração máxima: 10 minutos.** Para mudar o tom ao vivo, a TV carrega os dois áudios inteiros, descompactados, na memória: cerca de 46 MB por minuto. Uma entrevista de 27 minutos passou de 1,2 GB e derrubou a TV. Vídeos mais longos são recusados ao adicionar, antes de baixar ou processar qualquer coisa: na hora, quando a duração já é conhecida (pela busca ou pelo acervo), ou na etapa de metadados, quando não é. A TV pula, com aviso, entradas mais longas que já estejam na fila.
+
 **Ao adicionar uma música à fila**, sempre nasce uma nova entrada, porque repetições são permitidas. O que muda é o trabalho disparado:
 
 | Estado de `songs[video_id]` | O que acontece |
@@ -150,7 +152,7 @@ Cada `video_id` é processado no máximo uma vez. Tudo o que o pipeline produz f
 
 **Etapas do job `process`.** As etapas 1 e 2 são leves e rodam antes de baixar qualquer coisa. As demais rodam um job por vez. Como a GPU tem 8 GB de VRAM, só o modelo da etapa atual fica carregado.
 
-1. Metadados, sem baixar o vídeo: título, canal, duração, thumbnail e, quando existirem, `track` e `artist` vindos do yt-dlp.
+1. Metadados, sem baixar o vídeo: título, canal, duração, thumbnail e, quando existirem, `track` e `artist` vindos do yt-dlp. Um vídeo com mais de 10 minutos para aqui, como falha ("Vídeo longo demais para o karaokê").
 2. Letra: LRCLIB por artista, faixa e duração; depois busca livre com o título limpo; depois `syncedlyrics`. Vence o resultado com duração mais próxima da do vídeo. Sem letra, o job termina aqui e a música passa para `awaiting_decision` (veja abaixo).
 3. Download do melhor áudio disponível.
 4. Separação: audio-separator, com BS-RoFormer em sobreposição 2 e autocast, gera `instrumental.flac` e `vocals.flac`.
@@ -327,7 +329,7 @@ A TV é dona da reprodução. Ela toca os dois stems com a Web Audio API, desenh
 - O tom pode já vir escolhido do celular, ao adicionar a música; é o tom em que ela começa.
 - A Rubber Band muda o tom sem mudar a duração, então os tempos da letra continuam válidos em qualquer tom. O atraso do próprio processamento (~77 ms com o R3) entra no `atraso` do relógio da letra.
 
-**Entre músicas**, a TV mostra o próximo cantor, a música, o tom e o QR Code, e a próxima começa sozinha depois de uma contagem de 5 s. O host pode pausar ou pular. Se a próxima ainda estiver processando, a contagem espera ela ficar pronta; entradas aguardando a decisão de transcrever são puladas.
+**Entre músicas**, a TV mostra o próximo cantor, a música, o tom e o QR Code, e a próxima começa sozinha depois de uma contagem de 5 s. O host pode pausar ou pular. Se a próxima ainda estiver processando, a contagem espera ela ficar pronta; entradas aguardando a decisão de transcrever, e as mais longas que a duração máxima, são puladas.
 
 ## API REST e eventos em tempo real
 
