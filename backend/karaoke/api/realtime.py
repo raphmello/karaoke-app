@@ -71,6 +71,16 @@ class Hub:
         their value."""
         await self.send(room_id, {"type": "player.command", "action": action, **(fields or {})}, to=lambda c: c.tv)
 
+    async def close_rooms(self, room_ids: list[int]) -> None:
+        """A room the host closed: its screens are told with close code 4404 (the TV then offers the new room)."""
+        for room_id in room_ids:
+            self.player_state.pop(room_id, None)
+            for connection in list(self.rooms.pop(room_id, ())):
+                try:
+                    await connection.websocket.close(code=4404)
+                except Exception:  # already gone
+                    log.debug("conexão da sala %s já estava fechada", room_id)
+
     def _rows(self, room_id: int) -> Rows:
         with transaction(self.sessions) as session:
             room = session.get(Room, room_id)

@@ -61,7 +61,7 @@ function HostTabs({ active, missing, error }: { active: ActiveRoom | null; missi
       {tab === "panel" && <Panel />}
       {tab === "room" &&
         (active ? (
-          <Room room={active} />
+          <Room key={active.code} room={active} />
         ) : missing ? (
           <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-zinc-900 p-4">
             <p className="text-zinc-400">Nenhuma sala aberta.</p>
@@ -91,6 +91,7 @@ function OpenRoomButton({ replacing }: { replacing: boolean }) {
 function OpenRoomDialog({ replacing, onClose }: { replacing: boolean; onClose: () => void }) {
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
+  const [moveQueue, setMoveQueue] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -104,7 +105,7 @@ function OpenRoomDialog({ replacing, onClose }: { replacing: boolean; onClose: (
     setBusy(true);
     setError(null);
     try {
-      await api.openRoom(name.trim());
+      await api.openRoom(name.trim(), replacing && moveQueue);
       await queryClient.invalidateQueries({ queryKey: ["active-room"] });
       onClose();
     } catch (e) {
@@ -140,9 +141,26 @@ function OpenRoomDialog({ replacing, onClose }: { replacing: boolean; onClose: (
           />
         </label>
         {replacing && (
-          <p className="rounded-lg bg-amber-950 px-3 py-2 text-sm text-amber-200">
-            A sala atual será encerrada e o QR Code antigo para de funcionar. Os convidados entram de novo pelo QR novo.
-          </p>
+          <>
+            <fieldset className="flex flex-col gap-2 text-sm">
+              <legend className="mb-1 text-zinc-400">E a fila da sala atual?</legend>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="queue" className="mt-1" checked={!moveQueue} onChange={() => setMoveQueue(false)} />
+                <span>Começar a sala nova com a fila vazia</span>
+              </label>
+              <label className="flex items-start gap-2">
+                <input type="radio" name="queue" className="mt-1" checked={moveQueue} onChange={() => setMoveQueue(true)} />
+                <span>
+                  Levar as músicas que esperam para a sala nova
+                  <span className="block text-zinc-500">Nela, só o host poderá remover essas músicas.</span>
+                </span>
+              </label>
+            </fieldset>
+            <p className="rounded-lg bg-amber-950 px-3 py-2 text-sm text-amber-200">
+              A sala atual será encerrada e o QR Code antigo para de funcionar. Os convidados entram de novo pelo QR
+              novo. Se uma música estiver tocando, ela vai até o fim.
+            </p>
+          </>
         )}
         {error && <p className="text-sm text-red-400">{error}</p>}
         <div className="flex justify-end gap-2">

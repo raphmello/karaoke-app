@@ -125,7 +125,8 @@ export const api = {
   song: (videoId: string) => request<Song>(song(videoId)),
   hostLogin: (pin: string) => request<void>("/api/host/login", send("POST", { pin }), true), // a wrong PIN is not a lost session
   activeRoom: () => request<ActiveRoom>("/api/rooms/active"),
-  openRoom: (name: string) => request<Room>("/api/rooms", send("POST", { name: name || null })),
+  openRoom: (name: string, moveQueue = false) =>
+    request<Room>("/api/rooms", send("POST", { name: name || null, move_queue: moveQueue })),
   join: (code: string, nickname: string) => request<Guest>(`${room(code)}/join`, send("POST", { nickname })),
   queue: (code: string) => request<QueueEntry[]>(`${room(code)}/queue`),
   add: (code: string, body: { video_id: string; singer_name?: string; semitones: number }) =>

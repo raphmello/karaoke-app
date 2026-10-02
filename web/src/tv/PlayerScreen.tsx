@@ -45,6 +45,7 @@ export function PlayerScreen({
   onReport,
   commands,
   corner,
+  banner,
 }: {
   song: Song;
   singer: string;
@@ -56,6 +57,7 @@ export function PlayerScreen({
   onReport: (report: PlayerReport) => void;
   commands: { current: ((command: Command) => void) | null };
   corner?: ReactNode;
+  banner?: ReactNode; // a notice across the top, over the song (the room closed)
 }) {
   const media = song.media!;
   const lyrics = useQuery({ queryKey: ["lyrics", song.video_id], queryFn: () => fetchLyrics(media.lyrics) });
@@ -166,6 +168,7 @@ export function PlayerScreen({
 
   return (
     <div className="flex h-full flex-col">
+      {banner}
       <header className="flex items-start justify-between gap-4 px-6 py-4">
         <div className="min-w-0">
           <p className="truncate text-2xl font-semibold">{title}</p>

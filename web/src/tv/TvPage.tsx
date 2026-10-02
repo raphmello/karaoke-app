@@ -14,15 +14,23 @@ const COUNTDOWN_S = 5; // between songs (docs/ARCHITECTURE.md, "Entre músicas")
 
 export function TvPage() {
   const queryClient = useQueryClient();
+  const [room, setRoom] = useState<ActiveRoom | null>(null); // the room the TV is in
+  const [closed, setClosed] = useState(false); // the host closed it: the TV offers the new one
+  const [engine, setEngine] = useState<AudioEngine | null>(null); // kept across rooms: no second "Iniciar"
   const active = useQuery({
     queryKey: ["active-room"],
     queryFn: api.activeRoom,
     ...retryWhileRestarting,
-    refetchInterval: (query) => (query.state.data ? false : 5000), // waits for the host to open a room
+    // waits for the host to open a room, or the next one after this one closed
+    refetchInterval: (query) => (!query.state.data || closed ? 3000 : false),
   });
   const status = active.error instanceof ApiError ? active.error.status : null;
   const [lost, setLost] = useState(false);
   useEffect(() => onSessionLost(() => setLost(true)), []);
+  useEffect(() => {
+    if (!room && active.data) setRoom(active.data);
+  }, [room, active.data]);
+  const next = closed && active.data && active.data.code !== room?.code ? active.data : null;
 
   if (status === 401 || lost) {
     return (
@@ -35,7 +43,21 @@ export function TvPage() {
       />
     );
   }
-  if (active.data) return <TvRoom key={active.data.code} room={active.data} />;
+  if (room) {
+    return (
+      <TvRoom
+        key={room.code}
+        room={room}
+        engine={engine}
+        onEngine={setEngine}
+        closed={closed ? { next, go: () => next && (setRoom(next), setClosed(false)) } : null}
+        onClosed={() => {
+          setClosed(true);
+          void queryClient.invalidateQueries({ queryKey: ["active-room"] });
+        }}
+      />
+    );
+  }
   return (
     <Centered>
       <p className="text-3xl font-bold">Nenhuma sala aberta</p>
@@ -48,19 +70,36 @@ function Centered({ children }: { children: React.ReactNode }) {
   return <main className="flex h-full flex-col items-center justify-center gap-6 px-6 text-center">{children}</main>;
 }
 
-function TvRoom({ room }: { room: ActiveRoom }) {
-  const [engine, setEngine] = useState<AudioEngine | null>(null);
+type Closed = { next: ActiveRoom | null; go: () => void } | null;
+
+function TvRoom({
+  room,
+  engine,
+  onEngine,
+  closed,
+  onClosed,
+}: {
+  room: ActiveRoom;
+  engine: AudioEngine | null;
+  onEngine: (engine: AudioEngine) => void;
+  closed: Closed;
+  onClosed: () => void;
+}) {
   const [error, setError] = useState<string | null>(null);
 
   // The audio starts from this click, once per session: browsers allow sound only after an interaction.
   const start = async () => {
     try {
-      setEngine(await AudioEngine.create());
+      onEngine(await AudioEngine.create());
     } catch (e) {
       setError(`O áudio não pôde ser iniciado: ${(e as Error).message}`);
     }
   };
 
+  if (closed) {
+    // Before "Iniciar" nothing plays: the notice can take the whole screen.
+    if (!engine) return <ClosedNotice room={room} closed={closed} />;
+  }
   if (!engine) {
     return (
       <Centered>
@@ -72,10 +111,59 @@ function TvRoom({ room }: { room: ActiveRoom }) {
       </Centered>
     );
   }
-  return <TvQueue room={room} engine={engine} />;
+  return <TvQueue room={room} engine={engine} closed={closed} onClosed={onClosed} />;
 }
 
-function TvQueue({ room, engine }: { room: ActiveRoom; engine: AudioEngine }) {
+/** The host opened another room: this one's QR no longer works. */
+function ClosedNotice({ room, closed }: { room: ActiveRoom; closed: NonNullable<Closed> }) {
+  return (
+    <Centered>
+      <p className="text-4xl font-bold">A sala {room.code} foi encerrada</p>
+      {closed.next ? (
+        <>
+          <p className="text-xl text-zinc-400">
+            O host abriu a sala {closed.next.code}
+            {closed.next.name ? ` (${closed.next.name})` : ""}.
+          </p>
+          <button className="rounded-2xl bg-amber-400 px-10 py-5 text-3xl font-bold text-zinc-950" onClick={closed.go} autoFocus>
+            Ir para a nova sala
+          </button>
+        </>
+      ) : (
+        <p className="text-xl text-zinc-400">Aguardando o host abrir a nova sala…</p>
+      )}
+    </Centered>
+  );
+}
+
+/** Over the song still playing in a closed room: it finishes, and the TV can move on at any time. */
+function ClosedBanner({ room, closed }: { room: ActiveRoom; closed: NonNullable<Closed> }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 bg-amber-950 px-6 py-3 text-amber-100">
+      <p>
+        <span className="font-bold">A sala {room.code} foi encerrada.</span>{" "}
+        {closed.next ? `A nova sala é ${closed.next.code}. Esta música vai até o fim.` : "Aguardando o host abrir a nova sala…"}
+      </p>
+      {closed.next && (
+        <button className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950" onClick={closed.go}>
+          Ir para a nova sala
+        </button>
+      )}
+    </div>
+  );
+}
+
+function TvQueue({
+  room,
+  engine,
+  closed,
+  onClosed,
+}: {
+  room: ActiveRoom;
+  engine: AudioEngine;
+  closed: Closed;
+  onClosed: () => void;
+}) {
   const commands = useRef<((command: Command) => void) | null>(null);
   const [current, setCurrent] = useState<QueueEntry | null>(null);
   const [semitones, setSemitones] = useState(0);
@@ -107,7 +195,8 @@ function TvQueue({ room, engine }: { room: ActiveRoom; engine: AudioEngine }) {
   // The socket closed because the session or the room is gone: check again (a 401 brings back the PIN).
   const queryClient = useQueryClient();
   useEffect(() => {
-    if (live.closedWith) void queryClient.invalidateQueries({ queryKey: ["active-room"] });
+    if (live.closedWith === 4404) onClosed();
+    else if (live.closedWith) void queryClient.invalidateQueries({ queryKey: ["active-room"] });
   }, [live.closedWith, queryClient]);
 
   const entries = live.entries?.filter((entry) => !finished.current.has(entry.id)) ?? null;
@@ -115,7 +204,7 @@ function TvQueue({ room, engine }: { room: ActiveRoom; engine: AudioEngine }) {
 
   // Between songs: the next ready entry starts on its own after the countdown, unless the host paused it. A skip
   // (the server skips the entry about to start) or a new first entry starts the countdown over.
-  const upcoming = !current && next?.kind === "play" ? next.entry : null;
+  const upcoming = !current && !closed && next?.kind === "play" ? next.entry : null;
   const upcomingRef = useRef(upcoming);
   upcomingRef.current = upcoming;
   useEffect(() => setLeft(COUNTDOWN_S), [upcoming?.id]);
@@ -164,10 +253,12 @@ function TvQueue({ room, engine }: { room: ActiveRoom; engine: AudioEngine }) {
         onEnded={end}
         onReport={report}
         commands={commands}
-        corner={<JoinQr room={room} size={150} caption="Leia para entrar e escolher músicas" />}
+        corner={closed ? undefined : <JoinQr room={room} size={150} caption="Leia para entrar e escolher músicas" />}
+        banner={closed ? <ClosedBanner room={room} closed={closed} /> : undefined}
       />
     );
   }
+  if (closed) return <ClosedNotice room={room} closed={closed} />;
   if (upcoming) {
     return <BetweenSongs room={room} entry={upcoming} left={left} held={held} connected={live.connected} />;
   }

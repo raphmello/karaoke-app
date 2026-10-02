@@ -81,6 +81,7 @@ class LoginIn(BaseModel):
 
 class RoomIn(BaseModel):
     name: str | None = Field(default=None, max_length=80)
+    move_queue: bool = False  # the entries still waiting go to the new room (only the host removes them there)
 
 
 class RoomOut(BaseModel):

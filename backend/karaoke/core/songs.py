@@ -164,6 +164,26 @@ def answer_transcription(session: Session, entry: QueueEntry, accept: bool, by: 
         record(session, song.video_id, "removed", by, {"reason": TRANSCRIPTION_DECLINED})
 
 
+def close_rooms(session: Session, new_room: Room, move_queue: bool) -> list[int]:
+    """The rooms open until now close. The entry that was playing is done (the TV finishes it); with `move_queue`
+    the entries still waiting go to the new room, in order. Their guest_id stays, so the history keeps who added
+    them; the guests come back as new guests of the new room, so only the host can remove them. Returns the ids
+    of the rooms closed."""
+    closing = list(session.scalars(select(Room).where(Room.is_active, Room.id != new_room.id).order_by(Room.id)))
+    for room in closing:
+        room.is_active = False
+        for entry, _, _ in queue_rows(session, room):
+            if entry.status == PLAYING:
+                entry.status, entry.ended_at = DONE, utcnow()
+            elif move_queue:
+                entry.room_id = new_room.id
+    if move_queue:
+        session.flush()
+        for position, (entry, _, _) in enumerate(queue_rows(session, new_room), start=1):
+            entry.position = position
+    return [room.id for room in closing]
+
+
 def move_entry(session: Session, room: Room, entry: QueueEntry, index: int) -> None:
     """Put the entry at `index` (0 = first) among the room's active entries, and renumber them all."""
     entries = [e for e, _, _ in queue_rows(session, room) if e.id != entry.id]

@@ -233,3 +233,35 @@ def test_adding_a_song_that_waits_asks_the_new_owner(phone, host, code, db):
     with bia.websocket_connect(f"/ws/rooms/{code}") as ws:
         bias = add(bia, code)
         assert receive(ws, "song.lyrics_missing")["entries"] == [bias]
+
+
+# --- a new room while the old one is in use -----------------------------------------------------------------------
+
+def test_a_new_room_tells_the_old_rooms_screens_and_finishes_what_played(phone, host, code, db):
+    ana = phone(code, "Ana")
+    playing, waiting = add(ana, code), add(ana, code, OTHER_VIDEO)
+    with host.websocket_connect(f"/ws/rooms/{code}?role=tv") as tv, ana.websocket_connect(f"/ws/rooms/{code}") as ws:
+        tv.send_json({"type": "player.state", "entry_id": playing, "position": 30, "paused": False, "semitones": 0})
+        receive(ws, "player.state")
+        new = host.post("/api/rooms", json={"name": "Nova"}).json()["code"]
+        for socket in (tv, ws):
+            with pytest.raises(WebSocketDisconnect) as closed:
+                while True:
+                    socket.receive_json()
+            assert closed.value.code == 4404
+    assert entry(db, playing).status == "done"
+    assert (entry(db, waiting).status, entry(db, waiting).room_id) == ("queued", 1)  # stays behind, in the old room
+    assert host.get(f"/api/rooms/{new}/queue").json() == []
+
+
+def test_the_queue_can_move_to_the_new_room_where_only_the_host_removes_it(phone, host, code, db):
+    ana = phone(code, "Ana")
+    first, second = add(ana, code), add(ana, code, OTHER_VIDEO)
+    new = host.post("/api/rooms", json={"move_queue": True}).json()["code"]
+
+    moved = host.get(f"/api/rooms/{new}/queue").json()
+    assert [(e["id"], e["position"], e["added_by"]) for e in moved] == [(first, 1, "Ana"), (second, 2, "Ana")]
+    ana_again = phone(new, "Ana")  # back through the new QR: a new guest
+    assert not ana_again.get(f"/api/rooms/{new}/queue").json()[0]["mine"]
+    assert ana_again.delete(f"/api/rooms/{new}/queue/{first}").status_code == 403
+    assert host.delete(f"/api/rooms/{new}/queue/{first}").status_code == 204

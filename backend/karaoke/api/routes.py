@@ -15,7 +15,7 @@ from typing import Annotated
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
-from sqlalchemy import or_, select, update
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from karaoke.api import deps
@@ -65,6 +65,7 @@ from karaoke.core.songs import (
     QueueError,
     add_to_queue,
     answer_transcription,
+    close_rooms,
     move_entry,
     queue_rows,
     remove_entry,
@@ -159,17 +160,21 @@ def host_login(request: Request, response: Response, body: LoginIn, settings: Ap
 
 @api.post("/rooms", status_code=201)
 def open_room(request: Request, db: Sessions, settings: AppSettings, body: RoomIn) -> RoomOut:
-    """Opens tonight's room. One active room at a time in v1: the previous one closes, and its QR stops working."""
+    """Opens tonight's room. One active room at a time in v1: the previous one closes, its QR stops working and its
+    screens are told; with move_queue, its waiting entries come along."""
     with transaction(db) as session:
         deps.require_host(request, session)
-        session.execute(update(Room).where(Room.is_active).values(is_active=False))
         taken = set(session.scalars(select(Room.code)))
         code = new_room_code()
         while code in taken:
             code = new_room_code()
         room = Room(code=code, name=body.name, host_pin_hash=hash_pin(settings.host_pin))
         session.add(room)
-    log.info("sala %s aberta", code)
+        session.flush()
+        closed = close_rooms(session, room, body.move_queue)
+    log.info("sala %s aberta (fila %s)", code, "levada" if body.move_queue else "vazia")
+    notify(hub(request).close_rooms, closed)
+    notify(hub(request).queue_changed, room.id)
     return RoomOut(code=room.code, name=room.name, join_path=f"/j/{room.code}")
 
 
