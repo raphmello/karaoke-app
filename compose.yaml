@@ -1,19 +1,49 @@
-# Phase 1: only the worker, run on demand as `docker compose run --rm worker process <video>`.
-# API, Caddy and the rest of the stack come in phase 2 (docs/ARCHITECTURE.md, roadmap).
+# The whole app on the PC (docs/ARCHITECTURE.md, deployment): `docker compose up -d`, then http://<PC's IP>:8080.
+# Only Caddy is exposed. The bind mounts of ./backend are for development: code changes without rebuilding.
 name: karaoke
 
 services:
+  caddy:
+    image: caddy:2
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - karaoke-data:/srv/karaoke:ro  # Caddy keeps its own state in /data, so the volume goes elsewhere
+    depends_on:
+      - api
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    image: karaoke-api
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - karaoke-data:/data
+      - ./backend/karaoke:/app/karaoke
+    # development: reloads on code changes (and, with it, logs the host out)
+    command: ["uvicorn", "--factory", "karaoke.api.app:create_app", "--host", "0.0.0.0", "--port", "8000",
+              "--proxy-headers", "--forwarded-allow-ips", "*", "--reload", "--reload-dir", "/app/karaoke"]
+
   worker:
     build:
       context: .
       dockerfile: docker/worker.Dockerfile
     image: karaoke-worker
+    command: ["worker"]  # `docker compose run --rm worker process <video>` still processes one video by hand
+    env_file:
+      - path: .env
+        required: false
     volumes:
       - karaoke-data:/data
-      # development: the code on disk, without rebuilding the image
       - ./backend/karaoke:/app/karaoke
       - ./backend/tests:/app/tests
       - ./backend/pyproject.toml:/app/pyproject.toml:ro
+    depends_on:
+      - api
     deploy:
       resources:
         reservations:

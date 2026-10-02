@@ -133,6 +133,12 @@ class Manifest:
         self.data["stages"][stage] = {"at": _now(), **info}
         self.save()
 
+    def redo(self, *stages: str) -> None:
+        """Forget these stages, so the next run does them again (and only them, if the rest is done)."""
+        for stage in stages:
+            self.data["stages"].pop(stage, None)
+        self.save()
+
     def set(self, **fields) -> None:
         self.data.update(fields)
         self.save()

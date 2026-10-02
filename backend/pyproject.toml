@@ -3,19 +3,29 @@ name = "karaoke"
 version = "0.1.0"
 description = "Karaokê local: YouTube, voz removida, tom ajustável e letra palavra por palavra"
 requires-python = ">=3.12,<3.13"
-# Versions validated in the phase 0 spike (spikes/phase0/RESULTS.md).
+# What the API needs. The API image installs only these: no PyTorch (docs/ARCHITECTURE.md, deployment).
 dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy>=2",
+    "alembic",
+    "yt-dlp[default]==2026.8.19",
+    "requests",
+]
+
+[project.optional-dependencies]
+# The processing pipeline, installed only in the worker image.
+# Versions validated in the phase 0 spike (spikes/phase0/RESULTS.md).
+worker = [
     "torch==2.11.0",
     "torchaudio==2.11.0",
     "audio-separator[gpu]==0.47.0",
     "audioread",  # imported by audio-separator but not declared as its dependency
-    "yt-dlp[default]==2026.8.19",
     "stable-ts==2.19.1",
     "openai-whisper==20250625",
     "essentia==2.1b6.dev1389",  # the newest build with Python 3.12 Linux wheels
     "lingua-language-detector",
     "syncedlyrics",
-    "requests",
     "numpy",
     "soundfile",
 ]
@@ -24,7 +34,7 @@ dependencies = [
 karaoke = "karaoke.cli:main"
 
 [dependency-groups]
-dev = ["pytest", "ruff"]
+dev = ["pytest", "ruff", "httpx"]
 
 [tool.uv]
 # The worker runs only in its Linux container; the CUDA builds of PyTorch exist only for Linux and Windows.
@@ -49,6 +59,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"karaoke/migrations/versions/*" = ["E501", "W291"]  # written by alembic --autogenerate
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

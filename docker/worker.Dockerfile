@@ -25,8 +25,8 @@ WORKDIR /app
 # Dependencies first, in their own layer: PyTorch with CUDA is the largest download and rarely changes.
 # uv's download cache lives in a build cache mount, not in the image (it would double the image's size).
 COPY backend/pyproject.toml backend/uv.lock ./
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra worker --no-install-project
 COPY backend/ ./
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra worker
 
 ENTRYPOINT ["karaoke"]

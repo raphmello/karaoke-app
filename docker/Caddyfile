@@ -1,0 +1,24 @@
+# The only service exposed on the PC (port 8080). /internal is never routed: only the worker reaches it.
+:8080 {
+	encode zstd gzip
+
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+
+	handle /ws/* {
+		reverse_proxy api:8000
+	}
+
+	# Audio and lyrics straight from the volume, read-only. file_server answers Range requests, which the
+	# browser needs to seek.
+	handle_path /media/* {
+		root * /srv/karaoke/media
+		file_server
+	}
+
+	# The frontend (web/) arrives in phase 3.
+	handle {
+		respond "Karaokê: a interface chega na fase 3." 404
+	}
+}

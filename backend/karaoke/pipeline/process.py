@@ -54,8 +54,17 @@ def default_stages() -> list[Stage]:
     ]
 
 
-def process(video_id: str, settings: Settings, transcribe: bool = False, stages: list[Stage] | None = None) -> str:
-    """Run the job for one video and return its final status: ready or awaiting_decision."""
+def process(
+    video_id: str,
+    settings: Settings,
+    transcribe: bool = False,
+    stages: list[Stage] | None = None,
+    on_stage: Callable[[str, int, int], None] | None = None,
+) -> str:
+    """Run the job for one video and return its final status: ready or awaiting_decision.
+
+    `on_stage(name, index, total)` is called before each stage that actually runs, for progress reports.
+    """
     folder = SongFolder(settings.media_dir, video_id)
     folder.root.mkdir(parents=True, exist_ok=True)
     manifest = Manifest.load(folder)
@@ -68,11 +77,13 @@ def process(video_id: str, settings: Settings, transcribe: bool = False, stages:
 
     manifest.set(status="processing", error=None, **({"transcribe": True} if transcribe else {}))
     try:
-        for stage in stages:
+        for index, stage in enumerate(stages):
             if manifest.done(stage.name):
                 log.info("%-10s já feito", stage.name)
             else:
                 log.info("%-10s começando", stage.name)
+                if on_stage:
+                    on_stage(stage.name, index, len(stages))
                 start = time.perf_counter()
                 info = stage.run(ctx)
                 elapsed = time.perf_counter() - start
