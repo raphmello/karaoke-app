@@ -3,3 +3,6 @@ __pycache__/
 .ruff_cache/
 .venv/
 .env
+node_modules/
+web/dist/
+web/test-results/

@@ -17,8 +17,10 @@
 		file_server
 	}
 
-	# The frontend (web/) arrives in phase 3.
+	# The frontend, built into the image. Routes like /tv are the app's own: they all get index.html.
 	handle {
-		respond "Karaokê: a interface chega na fase 3." 404
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
 	}
 }

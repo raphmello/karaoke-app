@@ -22,7 +22,21 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Sobem três serviços: `caddy` (porta 8080, a única exposta), `api` e `worker` (com a GPU). O banco SQLite e as músicas ficam no volume `karaoke-data`. A interface chega na fase 3; por enquanto o app é só a API, em `http://localhost:8080/api/...`.
+Sobem três serviços: `caddy` (porta 8080, a única exposta, com o frontend compilado na imagem), `api` e `worker` (com a GPU). O banco SQLite e as músicas ficam no volume `karaoke-data`.
+
+## TV (fase 3)
+
+Abra `http://<IP do PC>:8080/tv` no navegador do PC ligado à TV. Na primeira vez ela pede o PIN do host. Depois, escolha uma música pronta do acervo: ela toca com a letra palavra por palavra. Os botões **−½ tom**, **+½ tom** e **Voltar ao tom original** mudam o tom ao vivo (as setas ↑ e ↓ também; espaço pausa). A voz guia e o atraso da letra ficam no rodapé; o atraso fica salvo no navegador.
+
+Para mexer no frontend sem reconstruir a imagem, com a pilha no ar:
+
+```bash
+cd web && pnpm install && pnpm dev
+```
+
+O Vite abre em `http://localhost:5173/tv` e repassa `/api`, `/media` e `/ws` para o Caddy.
+
+## API à mão
 
 Um roteiro mínimo com `curl`:
 
@@ -60,4 +74,8 @@ docker compose run --rm worker process <vídeo> --transcribe
 
 ```bash
 docker compose run --rm --no-deps --entrypoint uv worker run --frozen --group dev pytest
+```
+
+```bash
+cd web && pnpm test
 ```

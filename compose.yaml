@@ -4,11 +4,13 @@ name: karaoke
 
 services:
   caddy:
-    image: caddy:2
+    build:
+      context: .
+      dockerfile: docker/caddy.Dockerfile
+    image: karaoke-caddy
     ports:
       - "8080:8080"
     volumes:
-      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
       - karaoke-data:/srv/karaoke:ro  # Caddy keeps its own state in /data, so the volume goes elsewhere
     depends_on:
       - api
