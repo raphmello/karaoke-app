@@ -63,6 +63,7 @@ from karaoke.core.songs import (
     BY_OWNER,
     HOST,
     QueueError,
+    TooLong,
     add_to_queue,
     answer_transcription,
     close_rooms,
@@ -270,16 +271,19 @@ def add(request: Request, db: Sessions, settings: AppSettings, code: str, body: 
         room, actor = deps.room_actor(request, session, code)
         require(actor, Action.ADD)
         nickname = actor.guest.nickname if actor.guest else None
-        entry = add_to_queue(
-            session,
-            settings,
-            room,
-            body.video_id,
-            guest_id=actor.owner_id,
-            singer_name=body.singer_name or nickname,
-            semitones=body.semitones,
-            known=request.app.state.search.find(body.video_id),
-        )
+        try:
+            entry = add_to_queue(
+                session,
+                settings,
+                room,
+                body.video_id,
+                guest_id=actor.owner_id,
+                singer_name=body.singer_name or nickname,
+                semitones=body.semitones,
+                known=request.app.state.search.find(body.video_id),
+            )
+        except TooLong as exc:
+            raise HTTPException(422, str(exc)) from exc
         out = QueueEntryOut.of(entry, session.get(Song, entry.video_id), nickname, actor)
     notify(hub(request).queue_changed, room.id)
     if entry.status == AWAITING_DECISION:  # the question goes to the new owner too

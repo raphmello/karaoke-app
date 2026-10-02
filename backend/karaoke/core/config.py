@@ -17,6 +17,8 @@ class Settings:
     separation_autocast: bool = True
     whisper_model: str = "turbo"
     opus_bitrate: str = "160k"
+    # The TV decodes a song whole, ~46 MB a minute: longer videos are refused (docs/ARCHITECTURE.md, "Duração máxima")
+    max_duration_s: float = 600
 
     @property
     def media_dir(self) -> Path:

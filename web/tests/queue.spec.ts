@@ -54,3 +54,10 @@ test("the status line says what is happening", () => {
   expect(statusText(entry("awaiting_decision", "awaiting_decision"), {})).toBe("Letra não encontrada: aguardando resposta");
   expect(statusText(entry("queued", "failed", { error: "boom" }), {})).toBe("Erro no processamento: boom");
 });
+
+test("a song too long for the TV is skipped, and says why", () => {
+  const long = entry("queued", "ready", { duration_s: 1648 });
+  const ready = entry("queued", "ready");
+  expect(nextEntry([long, ready])).toEqual({ kind: "play", entry: ready });
+  expect(statusText(long, {})).toBe("Longa demais para a TV (mais de 10 min): será pulada");
+});

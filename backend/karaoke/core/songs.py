@@ -61,6 +61,8 @@ def add_to_queue(
     of showing only its id until the pipeline's metadata stage."""
     by = guest_id or HOST
     known = known or {}
+    existing = session.get(Song, video_id)
+    check_duration(existing.duration_s if existing and existing.duration_s else known.get("duration_s"), settings)
     shown = {k: known[k] for k in ("title", "channel", "duration_s", "thumbnail_url") if known.get(k)}
     # Only the transaction that inserts the song creates its job (INSERT ... ON CONFLICT DO NOTHING).
     inserted = session.execute(
@@ -110,6 +112,20 @@ BY_OWNER, BY_HOST, TRANSCRIPTION_DECLINED = "dono", "host", "transcrição recus
 
 class QueueError(Exception):
     """A queue change that the entry's state does not allow (the API answers 409)."""
+
+
+class TooLong(QueueError):
+    """A video longer than the TV can hold (the API answers 422; the pipeline fails the song with this message)."""
+
+    user_facing = True  # the worker records the message as it is, without the exception's name
+
+
+def check_duration(duration_s: float | None, settings: Settings) -> None:
+    if duration_s and duration_s > settings.max_duration_s:
+        raise TooLong(
+            f"Vídeo longo demais para o karaokê ({round(duration_s / 60)} min; "
+            f"o limite é {round(settings.max_duration_s / 60)} min)."
+        )
 
 
 def queue_rows(session: Session, room: Room) -> list[tuple[QueueEntry, Song, str | None]]:

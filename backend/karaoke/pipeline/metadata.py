@@ -5,6 +5,7 @@ import logging
 
 import requests
 
+from karaoke.core.songs import check_duration
 from karaoke.core.storage import atomic_path
 
 log = logging.getLogger("karaoke.pipeline")
@@ -19,6 +20,7 @@ def run(ctx) -> dict:
 
     with YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
         info = ydl.extract_info(video_url(ctx.folder.video_id), download=False)
+    check_duration(info.get("duration"), ctx.settings)  # nothing downloaded for a video the TV can't hold
 
     thumbnail_url = f"https://i.ytimg.com/vi/{ctx.folder.video_id}/hqdefault.jpg"
     try:

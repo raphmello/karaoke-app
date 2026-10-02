@@ -4,7 +4,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { api, type SearchResult } from "../api";
 import { clampSemitones, MAX_SEMITONES, MIN_SEMITONES, signed } from "../lib/keys";
-import { songTitle } from "../lib/queue";
+import { MAX_SONG_S, songTitle, tooLong } from "../lib/queue";
 import { loadNickname } from "../phone/identity";
 import { formatTime } from "../tv/time";
 import { PreviewBar, PreviewButton, previewSources, usePreview } from "./Preview";
@@ -115,7 +115,11 @@ export function Search({ code, onAdded }: { code: string; onAdded: (title: strin
                   {result.channel}
                   {result.duration_s ? ` · ${formatTime(result.duration_s)}` : ""}
                 </span>
-                {result.in_library && <span className="text-xs text-emerald-400">Toca na hora</span>}
+                {tooLong(result) ? (
+                  <span className="text-xs text-red-400">Longo demais para o karaokê (mais de {MAX_SONG_S / 60} min)</span>
+                ) : (
+                  result.in_library && <span className="text-xs text-emerald-400">Toca na hora</span>
+                )}
               </>
             }
           >

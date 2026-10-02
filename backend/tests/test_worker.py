@@ -195,3 +195,27 @@ def test_the_title_reaches_the_database_while_the_job_still_runs(db, settings, r
     work, _ = worker(settings, db, Watching())
     work.run(stop_when_idle=True)
     assert seen["title"] == "Artista - Música"
+
+
+def test_a_video_too_long_stops_at_the_metadata_with_a_plain_message(db, settings, room):
+    from karaoke.core.songs import check_duration
+
+    add(db, settings, room, A)
+
+    class Long(Pipeline):
+        def stages(self):
+            stages = super().stages()
+
+            def metadata(ctx):
+                self.calls.append("metadata")
+                check_duration(1648, ctx.settings)
+                return {}
+
+            return [Stage("metadata", metadata), *stages[1:]]
+
+    pipeline = Long()
+    work, _ = worker(settings, db, pipeline)
+    work.run(stop_when_idle=True)
+    assert pipeline.calls == ["metadata"]  # nothing downloaded
+    song = get(db, Song, A)
+    assert (song.status, song.error) == ("failed", "Vídeo longo demais para o karaokê (27 min; o limite é 10 min).")

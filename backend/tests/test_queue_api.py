@@ -265,3 +265,26 @@ def test_the_queue_can_move_to_the_new_room_where_only_the_host_removes_it(phone
     assert not ana_again.get(f"/api/rooms/{new}/queue").json()[0]["mine"]
     assert ana_again.delete(f"/api/rooms/{new}/queue/{first}").status_code == 403
     assert host.delete(f"/api/rooms/{new}/queue/{first}").status_code == 204
+
+
+# --- the 10-minute limit -------------------------------------------------------------------------------------------
+
+def test_a_video_too_long_for_the_tv_is_refused_when_its_length_is_known(phone, code, db):
+    with transaction(db) as session:  # a long interview already in the library
+        session.add(Song(video_id=OTHER_VIDEO, title="Entrevista", status="ready", duration_s=1648))
+    response = phone(code, "Ana").post(f"/api/rooms/{code}/queue", json={"video_id": OTHER_VIDEO})
+    assert response.status_code == 422
+    assert response.json()["detail"] == "Vídeo longo demais para o karaokê (27 min; o limite é 10 min)."
+    with db() as session:
+        assert session.scalar(select(QueueEntry).where(QueueEntry.video_id == OTHER_VIDEO)) is None
+
+
+def test_the_search_tells_the_length_before_anything_is_created(app, client, phone, code, db):
+    client.app.state.search._search = lambda q: [
+        {"video_id": VIDEO, "title": "Ao vivo", "channel": "C", "duration_s": 1673, "thumbnail_url": "t"}
+    ]
+    ana = phone(code, "Ana")
+    ana.get("/api/search", params={"q": "ao vivo"})
+    assert ana.post(f"/api/rooms/{code}/queue", json={"video_id": VIDEO}).status_code == 422
+    with db() as session:
+        assert session.get(Song, VIDEO) is None and session.scalar(select(Job)) is None  # nothing to process

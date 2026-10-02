@@ -1,7 +1,7 @@
 // The lyrics on the TV, as a teleprompter: every line the same size, the one being sung at a fixed spot and lit
 // word by word, the one just sung above it and the next two below, dimmed. When the line changes, the whole list
 // rolls up smoothly instead of jumping.
-import { Fragment, memo, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { focusIndex, type Line, lyricsAt, wordFill } from "../lib/lyrics";
 
 const SUNG = "#facc15";
@@ -37,9 +37,38 @@ function SungLine({ line, t }: { line: Line; t: number }) {
   );
 }
 
-const PlainLine = memo(function PlainLine({ line }: { line: Line }) {
-  return <>{line.words.map((w) => w.w).join(" ")}</>;
-});
+type Role = "hidden" | "past" | "next" | "sung";
+
+/** One line of the list. Memoized: per frame only the sung line, whose t changes, renders again; the others render
+ *  only when their role changes, so a long transcription (an interview had 961 lines) stays light. */
+const Row = memo(
+  function Row({
+    line,
+    role,
+    t,
+    setRef,
+  }: {
+    line: Line;
+    role: Role;
+    t: number;
+    setRef: (el: HTMLParagraphElement | null) => void;
+  }) {
+    return (
+      <p
+        ref={setRef}
+        className="max-w-6xl text-center text-5xl leading-tight font-bold md:text-6xl"
+        style={{
+          opacity: role === "hidden" ? 0 : role === "sung" ? 1 : role === "past" ? 0.3 : 0.55,
+          transition: `opacity ${ROLL_MS}ms ease-out`,
+        }}
+        aria-hidden={role === "hidden"}
+      >
+        {role === "sung" ? <SungLine line={line} t={t} /> : line.words.map((w) => w.w).join(" ")}
+      </p>
+    );
+  },
+  (a, b) => a.line === b.line && a.role === b.role && (a.role !== "sung" || a.t === b.t),
+);
 
 export function Lyrics({ lines, t, title }: { lines: Line[] | null; t: number; title: string }) {
   if (!lines || lines.length === 0) {
@@ -59,6 +88,14 @@ function Teleprompter({ lines, t }: { lines: Line[]; t: number }) {
   const box = useRef<HTMLDivElement>(null);
   const rows = useRef<(HTMLParagraphElement | null)[]>([]);
   const [shift, setShift] = useState(0);
+  // One stable ref setter per line, so the memoized rows are not re-rendered by a new function every frame.
+  const setters = useMemo(
+    () =>
+      lines.map((_, i) => (el: HTMLParagraphElement | null) => {
+        rows.current[i] = el;
+      }),
+    [lines],
+  );
 
   // Roll the list so the focus line sits at FOCUS_AT of the height; lines wrap, so measure instead of assuming.
   useLayoutEffect(() => {
@@ -87,22 +124,8 @@ function Teleprompter({ lines, t }: { lines: Line[]; t: number }) {
         {lines.map((line, i) => {
           const sung = i === view.index && view.current !== null;
           const visible = i >= focus - BEFORE && i <= focus + AFTER;
-          return (
-            <p
-              key={i}
-              ref={(el) => {
-                rows.current[i] = el;
-              }}
-              className="max-w-6xl text-center text-5xl leading-tight font-bold md:text-6xl"
-              style={{
-                opacity: !visible ? 0 : sung ? 1 : i < focus ? 0.3 : 0.55,
-                transition: `opacity ${ROLL_MS}ms ease-out`,
-              }}
-              aria-hidden={!visible}
-            >
-              {sung ? <SungLine line={line} t={t} /> : <PlainLine line={line} />}
-            </p>
-          );
+          const role: Role = !visible ? "hidden" : sung ? "sung" : i < focus ? "past" : "next";
+          return <Row key={i} line={line} role={role} t={sung ? t : 0} setRef={setters[i]} />;
         })}
       </div>
     </div>

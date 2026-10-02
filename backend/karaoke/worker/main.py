@@ -136,7 +136,8 @@ class Worker:
             error = None
         except Exception as exc:
             log.exception("job %s falhou", job.id)
-            status, error = FAILED, f"{type(exc).__name__}: {exc}"
+            # messages meant for people (a video too long) go as they are; the rest carry the exception's name
+            status, error = FAILED, str(exc) if getattr(exc, "user_facing", False) else f"{type(exc).__name__}: {exc}"
         self.finish(job, status, error)
         return status
 
