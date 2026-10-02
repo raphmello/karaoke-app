@@ -1,13 +1,45 @@
 // Finding a song and adding it to the queue: a YouTube search or the library, then who sings and the key it starts in.
 // Used by the guest's phone and by the host's screen; the API decides who the entry belongs to from the cookie.
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type ReactNode, useState } from "react";
 import { api, type SearchResult } from "../api";
 import { clampSemitones, MAX_SEMITONES, MIN_SEMITONES, signed } from "../lib/keys";
 import { songTitle } from "../lib/queue";
 import { loadNickname } from "../phone/identity";
 import { formatTime } from "../tv/time";
-import { Preview } from "./Preview";
+import { PreviewBar, PreviewButton, usePreview } from "./Preview";
+
+/** A song in the results or the library: tap it to add, or the round button on the right to hear it first. */
+function SongRow({
+  videoId,
+  local,
+  thumbnail,
+  details,
+  onPick,
+  children,
+}: {
+  videoId: string;
+  local: boolean;
+  thumbnail: string | null;
+  details: ReactNode;
+  onPick: () => void;
+  children: ReactNode;
+}) {
+  const preview = usePreview(videoId, local);
+  return (
+    <li className="rounded-xl bg-zinc-900 p-3">
+      <div className="flex items-center gap-3">
+        <button className="flex min-w-0 flex-1 gap-3 text-left" onClick={onPick}>
+          <img src={thumbnail ?? undefined} alt="" className="h-14 w-24 shrink-0 rounded-lg object-cover" />
+          <span className="min-w-0">{details}</span>
+        </button>
+        <PreviewButton preview={preview} />
+      </div>
+      <PreviewBar preview={preview} />
+      {children}
+    </li>
+  );
+}
 
 export function Search({ code, onAdded }: { code: string; onAdded: (title: string) => void }) {
   const [text, setText] = useState("");
@@ -40,23 +72,25 @@ export function Search({ code, onAdded }: { code: string; onAdded: (title: strin
       {results.isError && <p className="text-red-400">{results.error.message}</p>}
       <ul className="flex flex-col gap-2">
         {results.data?.map((result) => (
-          <li key={result.video_id} className="rounded-xl bg-zinc-900 p-3">
-            <button className="flex w-full gap-3 text-left" onClick={() => setPicked(picked?.video_id === result.video_id ? null : result)}>
-              <img src={result.thumbnail_url} alt="" className="h-14 w-24 shrink-0 rounded-lg object-cover" />
-              <span className="min-w-0">
+          <SongRow
+            key={result.video_id}
+            videoId={result.video_id}
+            local={result.in_library}
+            thumbnail={result.thumbnail_url}
+            onPick={() => setPicked(picked?.video_id === result.video_id ? null : result)}
+            details={
+              <>
                 <span className="line-clamp-2 font-semibold">{result.title}</span>
                 <span className="block truncate text-sm text-zinc-400">
                   {result.channel}
                   {result.duration_s ? ` · ${formatTime(result.duration_s)}` : ""}
                 </span>
                 {result.in_library && <span className="text-xs text-emerald-400">Toca na hora</span>}
-              </span>
-            </button>
-            <div className="mt-2 flex">
-              <Preview videoId={result.video_id} local={result.in_library} />
-            </div>
+              </>
+            }
+          >
             {picked?.video_id === result.video_id && <AddForm code={code} result={result} onAdded={onAdded} />}
-          </li>
+          </SongRow>
         ))}
       </ul>
       {results.data?.length === 0 && <p className="text-zinc-400">Nada encontrado.</p>}
@@ -82,24 +116,26 @@ export function Library({ code, onAdded }: { code: string; onAdded: (title: stri
       {songs.data?.length === 0 && <p className="text-zinc-400">Nenhuma música pronta{q ? " com esse nome" : ""}.</p>}
       <ul className="flex flex-col gap-2">
         {songs.data?.map((song) => (
-          <li key={song.video_id} className="rounded-xl bg-zinc-900 p-3">
-            <button className="flex w-full gap-3 text-left" onClick={() => setPicked(picked === song.video_id ? null : song.video_id)}>
-              <img src={song.thumbnail_url ?? undefined} alt="" className="h-14 w-24 shrink-0 rounded-lg object-cover" />
-              <span className="min-w-0">
+          <SongRow
+            key={song.video_id}
+            videoId={song.video_id}
+            local
+            thumbnail={song.thumbnail_url}
+            onPick={() => setPicked(picked === song.video_id ? null : song.video_id)}
+            details={
+              <>
                 <span className="block truncate font-semibold">{songTitle(song)}</span>
                 <span className="block truncate text-sm text-zinc-400">
                   {song.artist ?? song.channel}
                   {song.duration_s ? ` · ${formatTime(song.duration_s)}` : ""}
                 </span>
-              </span>
-            </button>
-            <div className="mt-2 flex">
-              <Preview videoId={song.video_id} local />
-            </div>
+              </>
+            }
+          >
             {picked === song.video_id && (
               <AddForm code={code} result={{ video_id: song.video_id, title: songTitle(song) }} onAdded={onAdded} />
             )}
-          </li>
+          </SongRow>
         ))}
       </ul>
     </div>
