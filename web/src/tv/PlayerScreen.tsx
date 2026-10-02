@@ -180,7 +180,7 @@ export function PlayerScreen({
         {corner}
       </header>
 
-      <main className="flex flex-1 items-center justify-center overflow-hidden px-6">
+      <main className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
         {loadError ? (
           <p className="text-2xl text-red-400">Não foi possível carregar a música: {loadError}</p>
         ) : !loaded || lyrics.isPending ? (

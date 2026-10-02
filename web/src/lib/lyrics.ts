@@ -52,3 +52,10 @@ export function wordFill(line: Line, word: Word, t: number): number {
   if (t >= word.e) return 1;
   return (t - word.s) / (word.e - word.s);
 }
+
+/** The line at the focus spot of the scrolling lyrics: the one being sung (or about to be, up to 1 s early); in a
+ *  long break, or before the first line, the next one to be sung, so the list has already rolled up to it. */
+export function focusIndex(lines: Line[], view: LyricsView): number {
+  if (view.current) return view.index;
+  return Math.min(view.index + 1, lines.length - 1);
+}

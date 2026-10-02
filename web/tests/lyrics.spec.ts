@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { type Line, lightsWhole, lyricsAt, wordFill } from "../src/lib/lyrics";
+import { focusIndex, type Line, lightsWhole, lyricsAt, wordFill } from "../src/lib/lyrics";
 
 const line = (start: number, end: number, words = 2, c: number | null = 0.9, low_confidence = false): Line => ({
   start,
@@ -64,4 +64,12 @@ test("a line with untrustworthy word times lights up whole as it starts", () => 
     expect(wordFill(shaky, shaky.words[1], 10)).toBe(1);
   }
   expect(lightsWhole(line(10, 14, 2, null))).toBe(false);
+});
+
+test("the focus follows the line being sung, and moves to the next one in a break", () => {
+  expect(focusIndex(LINES, lyricsAt(LINES, 0))).toBe(0); // before the first line
+  expect(focusIndex(LINES, lyricsAt(LINES, 11))).toBe(0);
+  expect(focusIndex(LINES, lyricsAt(LINES, 14.2))).toBe(1);
+  expect(focusIndex(LINES, lyricsAt(LINES, 20))).toBe(2); // the break cleared line 1: roll up to line 2
+  expect(focusIndex(LINES, lyricsAt(LINES, 30))).toBe(2); // after the last line it stays there
 });
