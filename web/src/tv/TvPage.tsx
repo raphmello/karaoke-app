@@ -42,6 +42,7 @@ export function TvPage() {
           setLost(false);
           void queryClient.invalidateQueries();
         }}
+        footer={<AdminLink />}
       />
     );
   }
@@ -64,7 +65,17 @@ export function TvPage() {
     <Centered>
       <p className="text-3xl font-bold">Nenhuma sala aberta</p>
       <p className="text-xl text-zinc-400">Abra a sala da noite na tela do host (/host). A TV entra nela sozinha.</p>
+      <AdminLink />
     </Centered>
+  );
+}
+
+/** The way from the TV to the host's screen, which asks for the same PIN. */
+function AdminLink() {
+  return (
+    <a className="text-center text-sm text-zinc-400 underline hover:text-zinc-200" href="/host">
+      Acessar como admin
+    </a>
   );
 }
 
@@ -110,6 +121,7 @@ function TvRoom({
           Iniciar
         </button>
         {error && <p className="text-red-400">{error}</p>}
+        <AdminLink />
       </Centered>
     );
   }

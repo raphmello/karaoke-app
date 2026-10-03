@@ -1,16 +1,18 @@
 // The admin's (host's) PIN. The TV, the /host screen and the QR's "Admin" choice all log in with it. The screen
 // says nothing about where the PIN is kept: whoever reaches it from the internet learns nothing from it.
-import { type FormEvent, useState } from "react";
+import { type FormEvent, type ReactNode, useState } from "react";
 import { api } from "../api";
 
 export function HostLogin({
   title,
   onDone,
   onBack,
+  footer,
 }: {
   title: string;
   onDone: () => void;
   onBack?: () => void;
+  footer?: ReactNode; // under the form (the TV links to /host there)
 }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +58,7 @@ export function HostLogin({
             Voltar
           </button>
         )}
+        {footer}
       </form>
     </main>
   );

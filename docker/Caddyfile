@@ -11,6 +11,10 @@
 :8080 {
 	encode zstd gzip
 
+	# The bare address opens the TV; the host reaches /host from there. Temporary (302), so browsers don't keep it
+	# for good if the landing page ever changes.
+	redir / /tv 302
+
 	handle /api/* {
 		reverse_proxy api:8000
 	}
