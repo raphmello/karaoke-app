@@ -2,6 +2,24 @@
 
 As mudanças de cada release do Karaokê, da mais nova para a mais antiga. As versões seguem o formato `ANO.MAJOR.MINOR`, e cada release tem um branch `release/<versão>` e uma tag `v<versão>`.
 
+## [2026.1.1] - 2026-10-02
+
+### Novidades
+
+- **PIN próprio para a TV** (`TV_PIN` no `.env`): ele só toca a fila. Dá para tocar, pausar, pular e mudar o tom da música que está tocando; nada do `/host` (salas, acervo, reprocessar, remover, reordenar). O PIN do admin continua abrindo a TV. As tentativas erradas nos dois PINs contam juntas para o bloqueio.
+- A tela de PIN da TV agora se chama **Open Karaoke**, e o botão **Iniciar** já entra na sala com o som ligado, sem um segundo toque.
+- O endereço principal abre a TV: `/` redireciona para `/tv`, e endereços desconhecidos também vão para lá.
+- O `/tv` tem um link **Acessar como admin**, que leva ao `/host`.
+- Este `CHANGELOG.md`.
+
+### Correções
+
+- O `/host` só abre com o PIN do admin; o cookie da TV não abre essa tela.
+
+### Ao atualizar
+
+- Defina `TV_PIN` no `.env`, diferente do `HOST_PIN`, e recrie a API (`docker compose up -d --force-recreate api`). Sem ele, só o PIN do admin abre a TV.
+
 ## [2026.1.0] - 2026-10-02
 
 Primeira release do Karaokê: um app de karaokê caseiro que roda num PC com GPU. Ele baixa a música do YouTube, separa a voz do instrumental, alinha a letra palavra por palavra e toca na TV, com mudança de tom ao vivo. Os convidados entram pelo QR Code e escolhem as músicas pelo celular.
@@ -33,4 +51,5 @@ A arquitetura completa está em [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 - Docker Compose com Caddy, API (FastAPI + SQLite), worker com GPU e, opcionalmente, Cloudflare Tunnel para acesso fora de casa.
 - Login do host por PIN, com bloqueio após tentativas erradas.
 
+[2026.1.1]: https://github.com/raphmello/karaoke-app/releases/tag/v2026.1.1
 [2026.1.0]: https://github.com/raphmello/karaoke-app/releases/tag/v2026.1.0
