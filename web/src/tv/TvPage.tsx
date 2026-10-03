@@ -60,7 +60,7 @@ export function TvPage() {
             void ctx.close().catch(() => undefined);
           }
         }}
-        prompt="Digite o PIN da TV."
+        prompt="Digite o PIN para Iniciar."
       />
     );
   }
