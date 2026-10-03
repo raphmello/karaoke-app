@@ -124,6 +124,8 @@ export const api = {
   search: (q: string) => request<SearchResult[]>(`/api/search?q=${encodeURIComponent(q)}`),
   song: (videoId: string) => request<Song>(song(videoId)),
   hostLogin: (pin: string) => request<void>("/api/host/login", send("POST", { pin }), true), // a wrong PIN is not a lost session
+  tvLogin: (pin: string) => request<void>("/api/tv/login", send("POST", { pin }), true), // TV_PIN, or the host's
+
   activeRoom: () => request<ActiveRoom>("/api/rooms/active"),
   openRoom: (name: string, moveQueue = false) =>
     request<Room>("/api/rooms", send("POST", { name: name || null, move_queue: moveQueue })),
@@ -149,6 +151,8 @@ export const api = {
   restoreSong: (videoId: string) => request<void>(`${song(videoId)}/restore`, send("POST")),
   history: (videoId: string) => request<SongEvent[]>(`${song(videoId)}/history`),
   jobs: () => request<Job[]>("/api/jobs"),
+  // Whether this browser is the host's: the jobs panel answers the host alone (the active room answers the TV too)
+  hostCheck: () => request<Job[]>("/api/jobs?limit=1").then(() => true),
   disk: () => request<Disk>("/api/disk"),
 };
 

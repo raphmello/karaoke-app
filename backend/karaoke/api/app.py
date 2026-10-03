@@ -31,6 +31,10 @@ def create_app(
         migrate(engine)
         if not settings.host_pin:
             log.warning("HOST_PIN não definido no .env: ninguém consegue entrar como host")
+        if not settings.tv_pin:
+            log.warning("TV_PIN não definido no .env: só o PIN do host abre a TV")
+        elif settings.tv_pin == settings.host_pin:
+            log.warning("TV_PIN igual ao HOST_PIN: na tela da TV ele entra só como TV; use PINs diferentes")
         yield
         engine.dispose()
 

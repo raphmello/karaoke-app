@@ -16,12 +16,20 @@ const button = "rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700
 
 export function HostPage() {
   const queryClient = useQueryClient();
-  const active = useQuery({ queryKey: ["active-room"], queryFn: api.activeRoom, ...retryWhileRestarting });
+  // Only the host's cookie opens this screen: the TV's (TV_PIN) also reads the active room, so that is not the check
+  const host = useQuery({ queryKey: ["host-check"], queryFn: api.hostCheck, ...retryWhileRestarting });
+  const active = useQuery({
+    queryKey: ["active-room"],
+    queryFn: api.activeRoom,
+    ...retryWhileRestarting,
+    enabled: host.isSuccess,
+  });
   const status = active.error instanceof ApiError ? active.error.status : null;
+  const hostStatus = host.error instanceof ApiError ? host.error.status : null;
   const [lost, setLost] = useState(false);
   useEffect(() => onSessionLost(() => setLost(true)), []);
 
-  if (status === 401 || lost) {
+  if (hostStatus === 401 || status === 401 || lost) {
     return (
       <HostLogin
         title="Host do karaokê"
@@ -32,7 +40,7 @@ export function HostPage() {
       />
     );
   }
-  if (active.isPending) return <p className="p-8 text-zinc-400">Carregando…</p>;
+  if (host.isPending || active.isPending) return <p className="p-8 text-zinc-400">Carregando…</p>;
   return <HostTabs active={active.data ?? null} missing={status === 404} error={active.error?.message ?? null} />;
 }
 

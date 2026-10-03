@@ -11,6 +11,7 @@ import time
 
 GUEST_COOKIE = "karaoke_guest"
 HOST_COOKIE = "karaoke_host"
+TV_COOKIE = "karaoke_tv"  # TV_PIN's cookie: plays the queue, nothing of /host
 
 _SCRYPT = {"n": 2**14, "r": 8, "p": 1}
 
@@ -33,7 +34,7 @@ def verify_pin(pin: str, stored: str) -> bool:
 
 
 def pin_matches(pin: str, expected: str) -> bool:
-    """The login check against HOST_PIN. An unset PIN never matches, so the host can't log in by accident."""
+    """The login check against HOST_PIN or TV_PIN. An unset PIN never matches, so nobody logs in by accident."""
     return bool(expected) and hmac.compare_digest(pin.encode(), expected.encode())
 
 
@@ -78,23 +79,25 @@ class LoginLimiter:
 
 
 class HostSigner:
-    """Signs the host cookie with a secret that lives only in this process.
+    """Signs the host's and the TV's cookies with a secret that lives only in this process. The role is part of the
+    signature, so a TV cookie never passes for a host one.
 
-    Nothing about the host session is stored, so restarting the API logs the host out; the PIN logs them back in.
+    Nothing about these sessions is stored, so restarting the API logs the host and the TV out; the PIN logs them
+    back in.
     """
 
     def __init__(self, secret: bytes | None = None):
         self._secret = secret or secrets.token_bytes(32)
 
-    def issue(self) -> str:
+    def issue(self, role: str = "host") -> str:
         nonce = secrets.token_urlsafe(16)
-        return f"{nonce}.{self._sign(nonce)}"
+        return f"{nonce}.{self._sign(role, nonce)}"
 
-    def verify(self, value: str | None) -> bool:
+    def verify(self, value: str | None, role: str = "host") -> bool:
         if not value or "." not in value:
             return False
         nonce, signature = value.rsplit(".", 1)
-        return hmac.compare_digest(signature, self._sign(nonce))
+        return hmac.compare_digest(signature, self._sign(role, nonce))
 
-    def _sign(self, nonce: str) -> str:
-        return hmac.new(self._secret, f"host:{nonce}".encode(), hashlib.sha256).hexdigest()
+    def _sign(self, role: str, nonce: str) -> str:
+        return hmac.new(self._secret, f"{role}:{nonce}".encode(), hashlib.sha256).hexdigest()

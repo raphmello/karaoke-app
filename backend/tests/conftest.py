@@ -1,6 +1,6 @@
 import pytest
 from fastapi.testclient import TestClient
-from helpers import PIN, Caller, cookie_of
+from helpers import PIN, TV_PIN, Caller, cookie_of
 
 from karaoke.api.app import create_app
 from karaoke.core.config import Settings
@@ -10,7 +10,7 @@ from karaoke.core.models import Room
 
 @pytest.fixture
 def settings(tmp_path) -> Settings:
-    return Settings(data_dir=tmp_path, host_pin=PIN)
+    return Settings(data_dir=tmp_path, host_pin=PIN, tv_pin=TV_PIN)
 
 
 @pytest.fixture
@@ -46,6 +46,14 @@ def client(app):
 @pytest.fixture
 def host(app, client):
     login = TestClient(app).post("/api/host/login", json={"pin": PIN})
+    assert login.status_code == 204
+    return Caller(client, cookie_of(login))
+
+
+@pytest.fixture
+def tv(app, client):
+    """The TV, logged in with TV_PIN."""
+    login = TestClient(app).post("/api/tv/login", json={"pin": TV_PIN})
     assert login.status_code == 204
     return Caller(client, cookie_of(login))
 

@@ -1,5 +1,6 @@
-// The admin's (host's) PIN. The TV, the /host screen and the QR's "Admin" choice all log in with it. The screen
-// says nothing about where the PIN is kept: whoever reaches it from the internet learns nothing from it.
+// A PIN screen: the admin's (host's) for /host and the QR's "Admin" choice; the TV's for /tv, which takes the
+// admin's too. The screen says nothing about where the PIN is kept: whoever reaches it from the internet learns
+// nothing from it.
 import { type FormEvent, type ReactNode, useState } from "react";
 import { api } from "../api";
 
@@ -8,11 +9,17 @@ export function HostLogin({
   onDone,
   onBack,
   footer,
+  login = api.hostLogin,
+  prompt = "Digite o PIN de administrador.",
+  submit: submitLabel = "Entrar",
 }: {
   title: string;
   onDone: () => void;
   onBack?: () => void;
   footer?: ReactNode; // under the form (the TV links to /host there)
+  login?: (pin: string) => Promise<void>;
+  prompt?: string;
+  submit?: string; // the button's label
 }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +30,7 @@ export function HostLogin({
     setBusy(true);
     setError(null);
     try {
-      await api.hostLogin(pin);
+      await login(pin);
       onDone();
     } catch (e) {
       setError((e as Error).message);
@@ -36,7 +43,7 @@ export function HostLogin({
     <main className="flex h-full items-center justify-center px-4">
       <form onSubmit={submit} className="flex w-full max-w-sm flex-col gap-4 rounded-2xl bg-zinc-900 p-8">
         <h1 className="text-2xl font-bold">{title}</h1>
-        <p className="text-zinc-400">Digite o PIN de administrador.</p>
+        <p className="text-zinc-400">{prompt}</p>
         <input
           type="password"
           inputMode="numeric"
@@ -44,14 +51,14 @@ export function HostLogin({
           className="rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-xl outline-none focus:border-amber-400"
           value={pin}
           onChange={(event) => setPin(event.target.value)}
-          aria-label="PIN de administrador"
+          aria-label={prompt}
         />
         {error && <p className="text-red-400">{error}</p>}
         <button
           className="rounded-lg bg-amber-400 px-4 py-3 text-lg font-bold text-zinc-950 disabled:opacity-50"
           disabled={busy || !pin}
         >
-          Entrar
+          {submitLabel}
         </button>
         {onBack && (
           <button type="button" className="text-sm text-zinc-400 underline" onClick={onBack}>

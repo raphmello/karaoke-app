@@ -70,13 +70,21 @@ export class AudioEngine {
     document.addEventListener("visibilitychange", () => this.check());
   }
 
-  /** Call from a click: browsers start audio only after the user interacts with the page. */
-  static async create(): Promise<AudioEngine> {
+  /** Call from a click, before any await: browsers start audio only from an interaction with the page. The TV's PIN
+   *  screen calls it as the PIN is sent, so the same tap logs in and starts the audio. */
+  static context(): AudioContext {
     // iPhone: Web Audio plays on the "ringer" channel, muted by the silent switch, unless the page says it is a
     // media player (Safari 16.4+). Without this the TV ran, lyrics and all, with no sound.
     const session = (navigator as Navigator & { audioSession?: { type: string } }).audioSession;
     if (session) session.type = "playback";
-    return new AudioEngine(await build(new AudioContext()));
+    const ctx = new AudioContext();
+    void ctx.resume().catch(() => undefined);
+    return ctx;
+  }
+
+  /** The engine on a context made by `context()`; without one, it makes it (so call it from a click too). */
+  static async create(ctx: AudioContext = AudioEngine.context()): Promise<AudioEngine> {
+    return new AudioEngine(await build(ctx));
   }
 
   async load(media: NonNullable<Song["media"]>): Promise<void> {

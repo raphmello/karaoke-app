@@ -5,6 +5,7 @@ from karaoke.core.config import Settings
 from karaoke.core.storage import Manifest, SongFolder
 
 PIN = "4321"  # the host's PIN in the tests
+TV_PIN = "8765"  # the TV's
 
 
 def write_manifest(settings: Settings, video_id: str, status: str, stages: dict) -> Manifest:

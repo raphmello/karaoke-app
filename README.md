@@ -26,9 +26,9 @@ Sobem três serviços: `caddy` (porta 8080, a única exposta, com o frontend com
 
 ## Uma noite de karaokê
 
-1. No `.env`, defina `HOST_PIN` e `PUBLIC_BASE_URL=http://<IP do PC>:8080` (o endereço que os celulares usam).
+1. No `.env`, defina `HOST_PIN`, `TV_PIN` (outro PIN, que só abre o player da TV) e `PUBLIC_BASE_URL=http://<IP do PC>:8080` (o endereço que os celulares usam).
 2. Em `http://<IP do PC>:8080/host`, entre com o PIN e abra a sala da noite.
-3. No PC ligado à TV, abra `http://<IP do PC>:8080/tv`, entre com o PIN e toque em **Iniciar**. A TV mostra o QR Code.
+3. No aparelho ligado à TV, abra `http://<IP do PC>:8080/tv`, entre com o PIN da TV (o do host também serve) e toque em **Iniciar**. A TV mostra o QR Code.
 4. Cada convidado lê o QR, escolhe um apelido, busca e adiciona músicas, já no tom em que quer começar. Antes de adicionar, **▶ Ouvir** toca uma prévia (do acervo, direto do PC; da busca, repassada do YouTube pela API). A fila toca em ordem, sozinha.
 
 Na TV, os botões **−½ tom**, **+½ tom** e **Voltar ao tom original** mudam o tom ao vivo (as setas ↑ e ↓ também; espaço pausa). O dono de cada música muda o tom dela pelo celular, e só ele (ou o host) pode removê-la. Quando a letra não é encontrada, o celular do dono pergunta se ela deve ser transcrita; um "não" tira a música da fila sem baixar nada. Entre uma música e outra, a TV mostra o próximo cantor, a música, o tom e o QR, e a próxima começa depois de 5 s.

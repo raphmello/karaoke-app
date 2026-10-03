@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.requests import HTTPConnection
 
-from karaoke.core.auth import GUEST_COOKIE, HOST_COOKIE, HostSigner, token_hash
+from karaoke.core.auth import GUEST_COOKIE, HOST_COOKIE, TV_COOKIE, HostSigner, token_hash
 from karaoke.core.config import Settings
 from karaoke.core.models import Guest, Room
 from karaoke.core.permissions import Actor
@@ -31,6 +31,8 @@ def host_signer(request: HTTPConnection) -> HostSigner:
 def find_actor(request: HTTPConnection, session: Session) -> Actor | None:
     if host_signer(request).verify(request.cookies.get(HOST_COOKIE)):
         return Actor()
+    if host_signer(request).verify(request.cookies.get(TV_COOKIE), role="tv"):
+        return Actor(tv=True)
     token = request.cookies.get(GUEST_COOKIE)
     if not token:
         return None
@@ -59,6 +61,14 @@ def require_host(request: HTTPConnection, session: Session) -> Actor:
     return actor
 
 
+def require_tv(request: HTTPConnection, session: Session) -> Actor:
+    """The TV's own routes: the host, or the TV logged in with TV_PIN."""
+    actor = find_actor(request, session)
+    if actor is None or not (actor.is_host or actor.is_tv):
+        raise HTTPException(401, "Entre com o PIN da TV.")
+    return actor
+
+
 def active_room(session: Session, code: str) -> Room:
     room = session.scalar(select(Room).where(Room.code == code.upper(), Room.is_active))
     if room is None:
@@ -67,10 +77,10 @@ def active_room(session: Session, code: str) -> Room:
 
 
 def room_actor(request: HTTPConnection, session: Session, code: str) -> tuple[Room, Actor]:
-    """The room, and a caller who belongs to it: the host, or one of its guests."""
+    """The room, and a caller who belongs to it: the host, the TV, or one of its guests."""
     room = active_room(session, code)
     actor = require_actor(request, session)
-    if not actor.is_host and actor.guest.room_id != room.id:
+    if actor.guest is not None and actor.guest.room_id != room.id:
         raise HTTPException(403, "Você não está nesta sala.")
     return room, actor
 

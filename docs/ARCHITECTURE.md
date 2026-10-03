@@ -271,25 +271,27 @@ Convidados entram pelo QR Code sem criar conta. O servidor dá a cada celular um
 **Como alguém entra**
 
 1. O host abre `/host`, entra com o PIN definido no `.env` e abre a sala da noite.
-2. A TV abre `/tv`, entra com o PIN do host na primeira vez (fica com o cookie de host, como a tela `/host`) e mostra o QR com `<origem>/j/<código da sala>`. A origem é o `PUBLIC_BASE_URL`, quando definido (domínio do túnel ou IP da rede local), seja qual for o endereço pelo qual a TV foi aberta: assim o QR serve tanto para quem está em casa quanto para quem está fora. Sem ele, vale a URL da TV.
+2. A TV abre `/tv`, entra com o PIN da TV (`TV_PIN`, `POST /api/tv/login`) na primeira vez e fica com um cookie de TV, que só toca a fila: tocar, pausar, pular e mudar o tom da música que está tocando. O PIN do host também abre a TV, porque o host pode tudo. O PIN da TV não abre a tela `/host`, que a TV alcança pelo link "Acessar como admin" e pede o PIN do host. A TV mostra o QR com `<origem>/j/<código da sala>`. A origem é o `PUBLIC_BASE_URL`, quando definido (domínio do túnel ou IP da rede local), seja qual for o endereço pelo qual a TV foi aberta: assim o QR serve tanto para quem está em casa quanto para quem está fora. Sem ele, vale a URL da TV.
 3. O celular abre o link e escolhe como entrar. **Convidado:** informa um apelido e chama `POST /api/rooms/{code}/join`. **Admin:** digita o PIN (`POST /api/host/login`) e vai para a tela do host. As telas de PIN não dizem onde o PIN fica guardado.
 4. O servidor gera um token aleatório de 32 bytes, guarda só o hash em `guests` e devolve o token num cookie `HttpOnly` e `SameSite=Lax` (mais `Secure` quando via HTTPS).
 5. Toda ação do celular leva o cookie. O servidor descobre o `guest_id` por ele e checa a permissão. IDs de dono enviados pelo cliente nunca são confiados.
 
 **Matriz de permissões**
 
-| Ação | Dono da entrada | Outro convidado | Host |
-| --- | --- | --- | --- |
-| Buscar e adicionar música | Sim | Sim | Sim |
-| Remover entrada da fila (se estiver tocando, pula) | Sim | Não | Sim |
-| Mudar o tom da entrada | Sim | Não | Sim |
-| Responder se a letra deve ser transcrita | Sim | Não | Sim |
-| Reordenar a fila | Não | Não | Sim |
-| Tocar, pausar, pular | Não | Não | Sim |
-| Ajustar voz guia e atraso da TV | Não | Não | Sim |
-| Trocar letra ou reprocessar etapas | Não | Não | Sim |
-| Marcar música do acervo como removida | Não | Não | Sim |
-| Desfazer a remoção de uma música | Não | Não | Sim |
+| Ação | Dono da entrada | Outro convidado | TV | Host |
+| --- | --- | --- | --- | --- |
+| Buscar e adicionar música | Sim | Sim | Não | Sim |
+| Remover entrada da fila (se estiver tocando, pula) | Sim | Não | Não | Sim |
+| Mudar o tom da entrada | Sim | Não | Só a que está tocando | Sim |
+| Responder se a letra deve ser transcrita | Sim | Não | Não | Sim |
+| Reordenar a fila | Não | Não | Não | Sim |
+| Tocar, pausar, pular | Não | Não | Sim | Sim |
+| Ajustar voz guia e atraso da TV | Não | Não | Não | Sim |
+| Trocar letra ou reprocessar etapas | Não | Não | Não | Sim |
+| Marcar música do acervo como removida | Não | Não | Não | Sim |
+| Desfazer a remoção de uma música | Não | Não | Não | Sim |
+
+A coluna TV vale para pedidos à API. A voz guia e o atraso que a própria TV ajusta na tela ficam só no navegador dela.
 
 A regra mora numa única função `can(ator, ação, entrada)`, chamada por todas as rotas e coberta por testes linha a linha desta matriz.
 
@@ -342,16 +344,17 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `POST /api/rooms/{code}/join` | Quem tem o código | Cria o convidado e devolve o cookie |
 | `GET /api/rooms/{code}/queue` | Convidado | Fila atual |
 | `POST /api/rooms/{code}/queue` | Convidado | Adiciona `{video_id, singer_name, semitones}` |
-| `PATCH /api/rooms/{code}/queue/{id}` | Dono (tom) ou host (tom e posição) | Altera a entrada |
+| `PATCH /api/rooms/{code}/queue/{id}` | Dono (tom), TV (tom da entrada que está tocando) ou host (tom e posição) | Altera a entrada |
 | `DELETE /api/rooms/{code}/queue/{id}` | Dono ou host | Remove a entrada (remoção lógica) |
 | `POST /api/rooms/{code}/queue/{id}/transcription` | Dono ou host | Responde à pergunta: `{"accept": true}` transcreve; `false` remove a entrada |
 | `GET /api/songs/{video_id}` | Convidado | Status, metadados, tom original e URLs de mídia |
 | `GET /api/preview/{video_id}` | Convidado | Prévia de um vídeo ainda não baixado, antes de adicioná-lo: a API acha o áudio com o yt-dlp e o repassa, com Range. Músicas do acervo tocam a prévia direto de `/media` |
 | `GET /api/library?q=` | Convidado | Acervo de músicas prontas; removidas ficam de fora. Com `removed=true` (só o host), lista as removidas, para desfazer a remoção |
-| `POST /api/host/login` | Qualquer um | Troca o PIN por um cookie de host |
+| `POST /api/host/login` | Qualquer um | Troca o PIN do host por um cookie de host |
+| `POST /api/tv/login` | Qualquer um | Troca o PIN da TV (`TV_PIN`) por um cookie de TV; o PIN do host, digitado na tela da TV, vale um cookie de host. Divide com o login do host o limite de tentativas erradas por endereço |
 | `POST /api/rooms` | Host | Abre a sala da noite e gera o código; a anterior é encerrada. Com `{"move_queue": true}`, as entradas que esperavam passam para a sala nova, na mesma ordem, e só o host pode removê-las |
-| `GET /api/rooms/active` | Host | Sala ativa: código, nome e a origem pública do QR (`PUBLIC_BASE_URL`). A TV usa para achar a fila e montar o QR |
-| `POST /api/rooms/{code}/player/{ação}` | Host | play, pause, skip, ou `guide` e `delay` com `{"value": ...}` (voz guia de 0 a 100% e atraso da TV em ms) |
+| `GET /api/rooms/active` | Host ou TV | Sala ativa: código, nome e a origem pública do QR (`PUBLIC_BASE_URL`). A TV usa para achar a fila e montar o QR |
+| `POST /api/rooms/{code}/player/{ação}` | Host; a TV, só play, pause e skip | play, pause, skip, ou `guide` e `delay` com `{"value": ...}` (voz guia de 0 a 100% e atraso da TV em ms) |
 | `PUT /api/songs/{video_id}/lyrics` | Host | Troca a letra e realinha |
 | `POST /api/songs/{video_id}/reprocess` | Host | Reprocessa as etapas escolhidas |
 | `DELETE /api/songs/{video_id}` | Host | Marca a música como removida; registro, arquivos e histórico ficam |
@@ -361,9 +364,9 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `GET /api/disk` | Host | Painel de disco: espaço livre do volume, tamanho das músicas e aviso quando estiver acabando |
 | `GET /media/{video_id}/...` | TV | Áudio e letra, servidos pelo Caddy com Range |
 | `POST /internal/events` | Worker | Progresso dos jobs. Não é exposto pelo Caddy |
-| `GET /internal/media-auth` | Caddy | Confere, antes de servir `/media` (`forward_auth`), se o pedido traz o cookie do host ou de um convidado de sala aberta. Não é exposto pelo Caddy |
+| `GET /internal/media-auth` | Caddy | Confere, antes de servir `/media` (`forward_auth`), se o pedido traz o cookie do host, da TV ou de um convidado de sala aberta. Não é exposto pelo Caddy |
 
-**WebSocket** em `/ws/rooms/{code}`, autenticado pelo mesmo cookie:
+**WebSocket** em `/ws/rooms/{code}`, autenticado pelo mesmo cookie. Com `?role=tv`, só para o cookie de TV ou de host, a conexão é a da TV:
 
 | Evento | Direção | Conteúdo |
 | --- | --- | --- |
@@ -395,7 +398,7 @@ O volume `karaoke-data` é montado na API e no worker com escrita, e no Caddy s�
 
 - No Windows: driver NVIDIA atualizado, Docker Desktop com backend WSL2 (a GPU chega aos containers por ele) e regra no Firewall liberando a porta 8080 na rede privada.
 - Reserve o IP do PC no roteador, para o QR Code não mudar.
-- `.env` com `HOST_PIN`, `PUBLIC_BASE_URL=http://<IP do PC>:8080` e os modelos escolhidos.
+- `.env` com `HOST_PIN`, `TV_PIN` (diferente do `HOST_PIN`), `PUBLIC_BASE_URL=http://<IP do PC>:8080` e os modelos escolhidos.
 - `docker compose up -d` sobe tudo; a TV abre `http://<IP do PC>:8080/tv`.
 - Desenvolvimento: `pnpm dev` fora do Docker, com proxy para a API, que roda com recarga automática.
 - Sem HTTPS na rede local o celular não instala o app como PWA, mas o site funciona normalmente.

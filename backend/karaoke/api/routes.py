@@ -42,7 +42,7 @@ from karaoke.api.schemas import (
     SongOut,
     TranscriptionIn,
 )
-from karaoke.core.auth import GUEST_COOKIE, HOST_COOKIE, hash_pin, new_guest_token, pin_matches
+from karaoke.core.auth import GUEST_COOKIE, HOST_COOKIE, TV_COOKIE, hash_pin, new_guest_token, pin_matches
 from karaoke.core.config import Settings
 from karaoke.core.db import transaction
 from karaoke.core.models import (
@@ -161,8 +161,9 @@ def original_name(settings: Settings, video_id: str) -> str | None:
 
 # --- host and rooms ------------------------------------------------------------------------------------------------
 
-@api.post("/host/login", status_code=204)
-def host_login(request: Request, response: Response, body: LoginIn, settings: AppSettings) -> None:
+def check_pin(request: Request, pin: str, *expected: str) -> int:
+    """Which of the expected PINs this is (its index), counting wrong ones against the caller's address: the host's
+    and the TV's logins share the limit, so neither is a way around it."""
     limiter = request.app.state.login_limiter
     address = deps.client_address(request)
     if wait := limiter.retry_after(address):
@@ -172,12 +173,29 @@ def host_login(request: Request, response: Response, body: LoginIn, settings: Ap
             f"Muitas tentativas erradas. Tente de novo em {minutes} minuto{'s' if minutes > 1 else ''}.",
             headers={"Retry-After": str(wait)},
         )
-    if not pin_matches(body.pin, settings.host_pin):
-        limiter.failed(address)
-        log.warning("PIN errado vindo de %s", address)
-        raise HTTPException(401, "PIN incorreto.")
-    limiter.succeeded(address)
+    for index, candidate in enumerate(expected):
+        if pin_matches(pin, candidate):
+            limiter.succeeded(address)
+            return index
+    limiter.failed(address)
+    log.warning("PIN errado vindo de %s", address)
+    raise HTTPException(401, "PIN incorreto.")
+
+
+@api.post("/host/login", status_code=204)
+def host_login(request: Request, response: Response, body: LoginIn, settings: AppSettings) -> None:
+    check_pin(request, body.pin, settings.host_pin)
     deps.set_cookie(request, response, HOST_COOKIE, deps.host_signer(request).issue(), HOST_COOKIE_AGE)
+
+
+@api.post("/tv/login", status_code=204)
+def tv_login(request: Request, response: Response, body: LoginIn, settings: AppSettings) -> None:
+    """The TV's PIN screen. TV_PIN gives the TV's cookie, which only plays the queue; the host's PIN, typed there,
+    gives the host's cookie, since the host may do everything."""
+    if check_pin(request, body.pin, settings.tv_pin, settings.host_pin) == 0:
+        deps.set_cookie(request, response, TV_COOKIE, deps.host_signer(request).issue("tv"), HOST_COOKIE_AGE)
+    else:
+        deps.set_cookie(request, response, HOST_COOKIE, deps.host_signer(request).issue(), HOST_COOKIE_AGE)
 
 
 @api.post("/rooms", status_code=201)
@@ -204,7 +222,7 @@ def open_room(request: Request, db: Sessions, settings: AppSettings, body: RoomI
 def active(request: Request, db: Sessions, settings: AppSettings) -> ActiveRoomOut:
     """The open room, for the TV: where its queue is and what goes in the QR."""
     with transaction(db) as session:
-        deps.require_host(request, session)
+        deps.require_tv(request, session)
         room = session.scalar(select(Room).where(Room.is_active).order_by(Room.id.desc()))
         if room is None:
             raise HTTPException(404, "Nenhuma sala aberta. Abra a sala na tela do host.")
@@ -384,8 +402,8 @@ def player(request: Request, db: Sessions, code: str, action: str, body: PlayerV
 
 @sockets.websocket("/ws/rooms/{code}")
 async def room_socket(websocket: WebSocket, code: str, role: str | None = None) -> None:
-    """Authenticated by the same cookie as REST. `?role=tv` (host only) marks the TV: it gets player.command and
-    reports player.state."""
+    """Authenticated by the same cookie as REST. `?role=tv` (the TV's cookie or the host's) marks the TV: it gets
+    player.command and reports player.state."""
     db = deps.sessions(websocket)
 
     def resolve() -> tuple[Room, Actor] | int:
@@ -401,7 +419,7 @@ async def room_socket(websocket: WebSocket, code: str, role: str | None = None) 
         await websocket.close(code=found)
         return
     room, actor = found
-    connection = Connection(websocket, room.id, actor, tv=role == "tv" and actor.is_host)
+    connection = Connection(websocket, room.id, actor, tv=role == "tv" and (actor.is_host or actor.is_tv))
     rooms = hub(websocket)
     rooms.join(connection)
     try:

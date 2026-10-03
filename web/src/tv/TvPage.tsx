@@ -1,4 +1,4 @@
-// /tv: logs in with the host's PIN (the TV is on the host's PC), finds the open room and plays its queue in order.
+// /tv: logs in with the TV's PIN (or the host's), finds the open room and plays its queue in order.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, type ActiveRoom, api, onSessionLost, retryWhileRestarting, type QueueEntry } from "../api";
@@ -37,12 +37,30 @@ export function TvPage() {
   if (status === 401 || lost) {
     return (
       <HostLogin
-        title="Karaokê na TV"
+        title="Open Karaoke"
+        submit="Iniciar"
         onDone={() => {
           setLost(false);
           void queryClient.invalidateQueries();
         }}
         footer={<AdminLink />}
+        login={async (pin) => {
+          // The tap that sends the PIN also starts the audio: the context is made before the first await, while it
+          // still counts as the tap. A wrong PIN throws it away; a failure past the login leaves the "Iniciar" screen.
+          const ctx = AudioEngine.context();
+          try {
+            await api.tvLogin(pin);
+          } catch (error) {
+            void ctx.close().catch(() => undefined);
+            throw error;
+          }
+          if (!engine) {
+            await AudioEngine.create(ctx).then(setEngine, () => void ctx.close().catch(() => undefined));
+          } else {
+            void ctx.close().catch(() => undefined);
+          }
+        }}
+        prompt="Digite o PIN da TV."
       />
     );
   }
