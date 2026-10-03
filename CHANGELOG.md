@@ -2,6 +2,12 @@
 
 As mudanças de cada release do Karaokê, da mais nova para a mais antiga. As versões seguem o formato `ANO.MAJOR.MINOR`, e cada release tem um branch `release/<versão>` e uma tag `v<versão>`.
 
+## [2026.1.2] - 2026-10-02
+
+### Mudanças
+
+- A tela de PIN da TV agora diz "Digite o PIN para Iniciar".
+
 ## [2026.1.1] - 2026-10-02
 
 ### Novidades
@@ -51,5 +57,6 @@ A arquitetura completa está em [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 - Docker Compose com Caddy, API (FastAPI + SQLite), worker com GPU e, opcionalmente, Cloudflare Tunnel para acesso fora de casa.
 - Login do host por PIN, com bloqueio após tentativas erradas.
 
+[2026.1.2]: https://github.com/raphmello/karaoke-app/releases/tag/v2026.1.2
 [2026.1.1]: https://github.com/raphmello/karaoke-app/releases/tag/v2026.1.1
 [2026.1.0]: https://github.com/raphmello/karaoke-app/releases/tag/v2026.1.0
