@@ -50,5 +50,16 @@ def test_the_tv_changes_the_key_only_of_the_entry_that_plays():
     assert not can(TV, Action.CHANGE_KEY)
 
 
+def test_a_phone_that_is_the_tv_and_a_guest_has_both_sets_of_rights():
+    both = Actor(Guest(id="owner", room_id=1, nickname="Ana", token_hash="a"), tv=True)
+    others = QueueEntry(id=4, room_id=1, video_id="dQw4w9WgXcQ", guest_id="other", position=2, status="queued")
+    assert can(both, Action.ADD)
+    assert can(both, Action.REMOVE_ENTRY, ENTRY) and can(both, Action.CHANGE_KEY, ENTRY)  # its own entry
+    assert can(both, Action.PLAYER)
+    assert not can(both, Action.REMOVE_ENTRY, others) and not can(both, Action.CHANGE_KEY, others)
+    assert not can(both, Action.REORDER) and not can(both, Action.REPROCESS)
+    assert not both.is_host and both.owner_id == "owner"
+
+
 def test_nothing_in_the_queue_is_the_tvs():
     assert not TV.is_host and TV.owner_id not in (None, "owner", "other")

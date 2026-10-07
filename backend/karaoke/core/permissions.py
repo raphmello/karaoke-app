@@ -11,8 +11,9 @@ NOBODY = "tv"  # the TV's owner_id: no entry's guest_id is ever this, so nothing
 
 @dataclass(frozen=True)
 class Actor:
-    """The host, the TV or a guest of an active room. A request with the host cookie acts as the host; one with the
-    TV cookie (TV_PIN) only plays the queue."""
+    """The host, the TV, a guest of an active room, or the TV and a guest at once. A request with the host cookie
+    acts as the host. The TV cookie (TV_PIN) plays the queue; a phone that is the TV and also joined as a guest (an
+    iPhone mirrored to the TV, say) carries both cookies and has both sets of rights."""
 
     guest: Guest | None = None
     tv: bool = False
@@ -28,9 +29,9 @@ class Actor:
     @property
     def owner_id(self) -> str | None:
         """queue_entries.guest_id for what this actor adds: the guest's id, or None for the host."""
-        if self.tv:
-            return NOBODY
-        return self.guest.id if self.guest else None
+        if self.guest:
+            return self.guest.id
+        return NOBODY if self.tv else None
 
 
 class Action(StrEnum):
@@ -54,10 +55,10 @@ TV = {Action.PLAYER}  # and the key of the entry that is playing
 def can(actor: Actor, action: Action, entry: QueueEntry | None = None) -> bool:
     if actor.is_host:
         return True
-    if actor.is_tv:
-        if action == Action.CHANGE_KEY:
-            return entry is not None and entry.status == PLAYING
-        return action in TV
+    if actor.is_tv and (action in TV or (action == Action.CHANGE_KEY and entry is not None and entry.status == PLAYING)):
+        return True
+    if actor.guest is None:  # the TV alone: nothing a guest does
+        return False
     if action in EVERYONE:
         return True
     if action in OWNER:

@@ -31,8 +31,15 @@ def host_signer(request: HTTPConnection) -> HostSigner:
 def find_actor(request: HTTPConnection, session: Session) -> Actor | None:
     if host_signer(request).verify(request.cookies.get(HOST_COOKIE)):
         return Actor()
-    if host_signer(request).verify(request.cookies.get(TV_COOKIE), role="tv"):
-        return Actor(tv=True)
+    # The TV's cookie and a guest's are read together: the phone that is the TV may also have joined as a guest
+    tv = host_signer(request).verify(request.cookies.get(TV_COOKIE), role="tv")
+    guest = find_guest(request, session)
+    if guest is None and not tv:
+        return None
+    return Actor(guest, tv=tv)
+
+
+def find_guest(request: HTTPConnection, session: Session) -> Guest | None:
     token = request.cookies.get(GUEST_COOKIE)
     if not token:
         return None
@@ -44,7 +51,7 @@ def find_actor(request: HTTPConnection, session: Session) -> Actor | None:
     now = datetime.now(UTC)
     if guest.last_seen_at is None or guest.last_seen_at.replace(tzinfo=UTC) < now - SEEN_EVERY:
         guest.last_seen_at = now  # SQLite returns datetimes without the zone; they are all UTC
-    return Actor(guest)
+    return guest
 
 
 def require_actor(request: HTTPConnection, session: Session) -> Actor:

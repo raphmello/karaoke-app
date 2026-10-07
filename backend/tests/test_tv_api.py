@@ -1,6 +1,6 @@
 """The TV's own PIN (docs/ARCHITECTURE.md, "Como alguém entra"): it plays the queue and nothing of /host."""
 from fastapi.testclient import TestClient
-from helpers import PIN, TV_PIN
+from helpers import PIN, TV_PIN, Caller, cookie_of
 
 from karaoke.api.app import create_app
 from karaoke.core.config import Settings
@@ -64,6 +64,23 @@ def test_the_tv_changes_only_the_key_of_the_song_that_plays(tv, phone, code):
     ana = phone(code, "Ana")
     waiting = add(ana, code)
     assert tv.patch(f"/api/rooms/{code}/queue/{waiting}", json={"semitones": 2}).status_code == 403
+
+
+def test_the_phone_that_is_the_tv_can_also_join_and_sing(app, client, phone, code):
+    # An iPhone mirrored to the TV: logged in with TV_PIN, then it reads the QR and joins as a guest
+    login = TestClient(app).post("/api/tv/login", json={"pin": TV_PIN})
+    joined = TestClient(app).post(f"/api/rooms/{code}/join", json={"nickname": "Raphael"},
+                                  headers={"cookie": cookie_of(login)})
+    assert joined.status_code == 200
+    both = Caller(client, f"{cookie_of(login)}; {cookie_of(joined)}")
+    mine = add(both, code)
+    assert both.get(f"/api/rooms/{code}/queue").json()[0]["mine"]
+    assert both.patch(f"/api/rooms/{code}/queue/{mine}", json={"semitones": 1}).status_code == 200
+    assert both.get("/api/rooms/active").json()["code"] == code  # still the TV
+    assert both.post(f"/api/rooms/{code}/player/pause").status_code == 204
+    anas = add(phone(code, "Ana"), code)
+    assert both.delete(f"/api/rooms/{code}/queue/{anas}").status_code == 403  # not someone else's
+    assert both.delete(f"/api/rooms/{code}/queue/{mine}").status_code == 204
 
 
 def test_the_tv_cannot_do_what_belongs_to_the_host_or_the_guests(tv, phone, code):
