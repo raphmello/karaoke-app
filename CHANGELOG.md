@@ -2,6 +2,12 @@
 
 As mudanças de cada release do Karaokê, da mais nova para a mais antiga. As versões seguem o formato `ANO.MAJOR.MINOR`, e cada release tem um branch `release/<versão>` e uma tag `v<versão>`.
 
+## [2026.1.3] - 2026-10-07
+
+### Correções
+
+- O celular que abre a TV com o PIN da TV e também entra como convidado pelo QR (um iPhone espelhado na TV, por exemplo) agora consegue adicionar músicas. Antes, a API só via o papel de TV e recusava com "Só o host pode fazer isso.". Esse celular passa a ter os direitos da TV e os de convidado ao mesmo tempo, e continua sem poder mexer nas músicas dos outros.
+
 ## [2026.1.2] - 2026-10-02
 
 ### Mudanças
@@ -57,6 +63,7 @@ A arquitetura completa está em [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 - Docker Compose com Caddy, API (FastAPI + SQLite), worker com GPU e, opcionalmente, Cloudflare Tunnel para acesso fora de casa.
 - Login do host por PIN, com bloqueio após tentativas erradas.
 
+[2026.1.3]: https://github.com/raphmello/karaoke-app/releases/tag/v2026.1.3
 [2026.1.2]: https://github.com/raphmello/karaoke-app/releases/tag/v2026.1.2
 [2026.1.1]: https://github.com/raphmello/karaoke-app/releases/tag/v2026.1.1
 [2026.1.0]: https://github.com/raphmello/karaoke-app/releases/tag/v2026.1.0
