@@ -2,6 +2,21 @@
 
 As mudanças de cada release do Karaokê, da mais nova para a mais antiga. As versões seguem o formato `ANO.MAJOR.MINOR`, e cada release tem um branch `release/<versão>` e uma tag `v<versão>`.
 
+## [2026.1.4] - 2026-10-09
+
+### Novidades
+
+- **Menu lateral na TV:** um botão "☰ Menu" na borda direita. Aberto, ele fica ao lado da TV, que encolhe sem esconder a letra, o QR e os controles; no celular, cobre a tela.
+  - **Sala**, com as sub-abas **Fila** e **Adicionar Música**, liberada pelo PIN da TV.
+  - **Gerenciar Acervo** e **Painel** pedem o PIN do admin na própria aba; **Sair do admin** volta a bloqueá-las e mantém a TV na sala.
+- **A TV adiciona músicas** e é dona delas: remove e muda o tom das que adicionou, que aparecem na fila como adicionadas por "TV".
+- **Menus coerentes:** o `/host` e o celular do convidado usam a mesma aba Sala, com Fila e Adicionar Música. "Acervo" passou a se chamar "Gerenciar Acervo" no admin.
+- Adicionar uma música não pula mais para a fila: aparece só a confirmação.
+
+### Correções
+
+- A música que está tocando fica fixa no topo da fila: sem botões de ordem, nada sobe acima dela, e a API recusa movê-la.
+
 ## [2026.1.3] - 2026-10-07
 
 ### Correções
@@ -63,6 +78,7 @@ A arquitetura completa está em [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 - Docker Compose com Caddy, API (FastAPI + SQLite), worker com GPU e, opcionalmente, Cloudflare Tunnel para acesso fora de casa.
 - Login do host por PIN, com bloqueio após tentativas erradas.
 
+[2026.1.4]: https://github.com/raphmello/karaoke-app/releases/tag/v2026.1.4
 [2026.1.3]: https://github.com/raphmello/karaoke-app/releases/tag/v2026.1.3
 [2026.1.2]: https://github.com/raphmello/karaoke-app/releases/tag/v2026.1.2
 [2026.1.1]: https://github.com/raphmello/karaoke-app/releases/tag/v2026.1.1
