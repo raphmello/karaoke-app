@@ -6,17 +6,22 @@ from enum import StrEnum
 
 from karaoke.core.models import PLAYING, Guest, QueueEntry
 
-NOBODY = "tv"  # the TV's owner_id: no entry's guest_id is ever this, so nothing in the queue is the TV's
+def tv_token(room_id: int) -> str:
+    """guests.token_hash of a room's "TV" guest, who owns the songs the TV adds. A real guest's is a sha256 in hex,
+    which never has a colon, so no phone can ever be this guest."""
+    return f"tv:{room_id}"
 
 
 @dataclass(frozen=True)
 class Actor:
     """The host, the TV, a guest of an active room, or the TV and a guest at once. A request with the host cookie
-    acts as the host. The TV cookie (TV_PIN) plays the queue; a phone that is the TV and also joined as a guest (an
-    iPhone mirrored to the TV, say) carries both cookies and has both sets of rights."""
+    acts as the host. The TV cookie (TV_PIN) plays the queue and owns the songs it adds, through the room's "TV" guest
+    (`tv_guest`, None until the TV adds one); a phone that is the TV and also joined as a guest (an iPhone mirrored
+    to the TV, say) carries both cookies and has both sets of rights."""
 
     guest: Guest | None = None
     tv: bool = False
+    tv_guest: Guest | None = None
 
     @property
     def is_host(self) -> bool:
@@ -27,11 +32,23 @@ class Actor:
         return self.tv
 
     @property
+    def owner_ids(self) -> set[str]:
+        """The queue_entries.guest_id this actor owns: its guest's, and the room's "TV" guest's when it is the TV."""
+        return {g.id for g in (self.guest, self.tv_guest if self.tv else None) if g is not None}
+
+    @property
     def owner_id(self) -> str | None:
-        """queue_entries.guest_id for what this actor adds: the guest's id, or None for the host."""
+        """Who answers or adds, for the records: the guest, else the TV's guest, else None for the host."""
         if self.guest:
             return self.guest.id
-        return NOBODY if self.tv else None
+        return self.tv_guest.id if self.tv and self.tv_guest else None
+
+    def owns(self, entry: QueueEntry) -> bool:
+        """Whether the entry shows as this actor's ("mine"): its guest's or the TV's; the host's are the ones no guest
+        added."""
+        if entry.guest_id is None:
+            return self.is_host
+        return entry.guest_id in self.owner_ids
 
 
 class Action(StrEnum):
@@ -49,7 +66,7 @@ class Action(StrEnum):
 
 EVERYONE = {Action.ADD}
 OWNER = {Action.REMOVE_ENTRY, Action.CHANGE_KEY, Action.ANSWER_TRANSCRIPTION}
-TV = {Action.PLAYER}  # and the key of the entry that is playing
+TV = {Action.PLAYER, Action.ADD}  # the key of the entry that is playing; and, as an owner, the songs it added
 
 
 def can(actor: Actor, action: Action, entry: QueueEntry | None = None) -> bool:
@@ -57,10 +74,8 @@ def can(actor: Actor, action: Action, entry: QueueEntry | None = None) -> bool:
         return True
     if actor.is_tv and (action in TV or (action == Action.CHANGE_KEY and entry is not None and entry.status == PLAYING)):
         return True
-    if actor.guest is None:  # the TV alone: nothing a guest does
-        return False
-    if action in EVERYONE:
+    if actor.guest is not None and action in EVERYONE:
         return True
     if action in OWNER:
-        return entry is not None and entry.guest_id is not None and entry.guest_id == actor.guest.id
+        return entry is not None and entry.guest_id is not None and entry.guest_id in actor.owner_ids
     return False

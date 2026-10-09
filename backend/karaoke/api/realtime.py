@@ -114,7 +114,7 @@ class Hub:
         for room_id in {room_id for room_id, _ in found.values()}:
             for connection in list(self.rooms.get(room_id, ())):
                 actor = connection.actor
-                mine = [i for i, (r, g) in found.items() if r == room_id and (actor.is_host or g == actor.owner_id)]
+                mine = [i for i, (r, g) in found.items() if r == room_id and (actor.is_host or g in actor.owner_ids)]
                 if mine:
                     await connection.send({"type": "song.lyrics_missing", "video_id": video_id, "entries": mine})
 

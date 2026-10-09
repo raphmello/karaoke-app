@@ -1,6 +1,7 @@
 """Who is calling, resolved from the cookies before any permission check. Ids sent by the client are never trusted."""
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, Request, Response
@@ -11,7 +12,7 @@ from starlette.requests import HTTPConnection
 from karaoke.core.auth import GUEST_COOKIE, HOST_COOKIE, TV_COOKIE, HostSigner, token_hash
 from karaoke.core.config import Settings
 from karaoke.core.models import Guest, Room
-from karaoke.core.permissions import Actor
+from karaoke.core.permissions import Actor, tv_token
 
 SEEN_EVERY = timedelta(minutes=1)
 
@@ -36,7 +37,24 @@ def find_actor(request: HTTPConnection, session: Session) -> Actor | None:
     guest = find_guest(request, session)
     if guest is None and not tv:
         return None
-    return Actor(guest, tv=tv)
+    # The TV's own guest is there from the start, so its live queue already shows what it adds as its own
+    return Actor(guest, tv=tv, tv_guest=tv_guest(session, create=True) if tv else None)
+
+
+TV_NICKNAME = "TV"
+
+
+def tv_guest(session: Session, create: bool = False) -> Guest | None:
+    """The open room's "TV" guest, who owns the songs the TV adds; made the first time the TV adds one."""
+    room = session.scalar(select(Room).where(Room.is_active).order_by(Room.id.desc()))
+    if room is None:
+        return None
+    guest = session.scalar(select(Guest).where(Guest.token_hash == tv_token(room.id)))
+    if guest is None and create:
+        guest = Guest(id=str(uuid.uuid4()), room_id=room.id, nickname=TV_NICKNAME, token_hash=tv_token(room.id))
+        session.add(guest)
+        session.flush()
+    return guest
 
 
 def find_guest(request: HTTPConnection, session: Session) -> Guest | None:
@@ -108,3 +126,8 @@ def set_cookie(request: Request, response: Response, name: str, value: str, max_
         secure=request.url.scheme == "https",  # behind Caddy, uvicorn takes the scheme from X-Forwarded-Proto
         path="/",
     )
+
+
+def clear_cookie(request: Request, response: Response, name: str) -> None:
+    """The browser drops a cookie only when the attributes match the ones it was set with."""
+    response.delete_cookie(name, httponly=True, samesite="lax", secure=request.url.scheme == "https", path="/")

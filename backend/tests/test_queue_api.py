@@ -300,3 +300,16 @@ def test_a_refusal_says_who_may_remove_the_song(phone, host, code):
     key = bruno.patch(f"/api/rooms/{code}/queue/{anas}", json={"semitones": 2}).json()["detail"]
     assert key == "Só Ana, que adicionou esta música, ou o host podem mudar o tom desta música."
     assert bruno.delete(f"/api/rooms/{code}/queue/{hosts}").json()["detail"] == "Só o host pode remover esta música."
+
+
+def test_the_song_that_plays_keeps_its_place(phone, host, code, db):
+    ana = phone(code, "Ana")
+    first, second = add(ana, code), add(ana, code, OTHER_VIDEO)
+    with host.websocket_connect(f"/ws/rooms/{code}?role=tv") as tv:
+        receive(tv, "queue.snapshot")
+        tv.send_json({"type": "player.state", "entry_id": first, "position": 1, "paused": False, "semitones": 0})
+        receive(tv, "queue.snapshot")
+    assert host.patch(f"/api/rooms/{code}/queue/{first}", json={"position": 1}).status_code == 409
+    # The next one cannot go above it either: asked to be first, it stays right below what plays
+    assert host.patch(f"/api/rooms/{code}/queue/{second}", json={"position": 0}).status_code == 200
+    assert [e["id"] for e in host.get(f"/api/rooms/{code}/queue").json()] == [first, second]

@@ -57,7 +57,7 @@ from karaoke.core.models import (
     Song,
     SongEvent,
 )
-from karaoke.core.permissions import Action, Actor, can
+from karaoke.core.permissions import Action, Actor, can, tv_token
 from karaoke.core.songs import (
     BY_HOST,
     BY_OWNER,
@@ -188,6 +188,12 @@ def host_login(request: Request, response: Response, body: LoginIn, settings: Ap
     deps.set_cookie(request, response, HOST_COOKIE, deps.host_signer(request).issue(), HOST_COOKIE_AGE)
 
 
+@api.post("/host/logout", status_code=204)
+def host_logout(request: Request, response: Response) -> None:
+    """"Sair do admin" on the TV's menu: the host's cookie goes, the TV's and a guest's stay."""
+    deps.clear_cookie(request, response, HOST_COOKIE)
+
+
 @api.post("/tv/login", status_code=204)
 def tv_login(request: Request, response: Response, body: LoginIn, settings: AppSettings) -> None:
     """The TV's PIN screen. TV_PIN gives the TV's cookie, which only plays the queue; the host's PIN, typed there,
@@ -282,7 +288,8 @@ def require(actor: Actor, action: Action, entry: QueueEntry | None = None, sessi
     owner = session.get(Guest, entry.guest_id) if session is not None and entry.guest_id else None
     if owner is None:
         raise HTTPException(403, f"Só o host pode {verb}.")
-    raise HTTPException(403, f"Só {owner.nickname}, que adicionou esta música, ou o host podem {verb}.")
+    who = "a TV" if owner.token_hash == tv_token(owner.room_id) else owner.nickname
+    raise HTTPException(403, f"Só {who}, que adicionou esta música, ou o host podem {verb}.")
 
 
 def room_entry(session: Session, room: Room, entry_id: int) -> QueueEntry:
@@ -304,15 +311,17 @@ def add(request: Request, db: Sessions, settings: AppSettings, code: str, body: 
     with transaction(db) as session:
         room, actor = deps.room_actor(request, session, code)
         require(actor, Action.ADD)
-        nickname = actor.guest.nickname if actor.guest else None
+        # The owner: the guest; the TV adds as the room's "TV" guest, so it can remove the song or change its key
+        owner = actor.guest or (actor.tv_guest if actor.is_tv else None)
+        nickname = owner.nickname if owner else None
         try:
             entry = add_to_queue(
                 session,
                 settings,
                 room,
                 body.video_id,
-                guest_id=actor.owner_id,
-                singer_name=body.singer_name or nickname,
+                guest_id=owner.id if owner else None,
+                singer_name=body.singer_name or (actor.guest.nickname if actor.guest else None),
                 semitones=body.semitones,
                 known=request.app.state.search.find(body.video_id),
             )
@@ -336,7 +345,10 @@ def change(request: Request, db: Sessions, code: str, entry_id: int, body: Queue
             entry.semitones = body.semitones
         if body.position is not None:
             require(actor, Action.REORDER, entry)
-            move_entry(session, room, entry, body.position)
+            try:
+                move_entry(session, room, entry, body.position)
+            except QueueError as exc:
+                raise HTTPException(409, str(exc)) from exc
         song = session.get(Song, entry.video_id)
         nickname = session.get(Guest, entry.guest_id).nickname if entry.guest_id else None
         out = QueueEntryOut.of(entry, song, nickname, actor)

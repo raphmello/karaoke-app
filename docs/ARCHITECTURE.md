@@ -271,7 +271,7 @@ Convidados entram pelo QR Code sem criar conta. O servidor dá a cada celular um
 **Como alguém entra**
 
 1. O host abre `/host`, entra com o PIN definido no `.env` e abre a sala da noite.
-2. A TV abre `/tv`, entra com o PIN da TV (`TV_PIN`, `POST /api/tv/login`) na primeira vez e fica com um cookie de TV, que só toca a fila: tocar, pausar, pular e mudar o tom da música que está tocando. O PIN do host também abre a TV, porque o host pode tudo. O PIN da TV não abre a tela `/host`, que a TV alcança pelo link "Acessar como admin" e pede o PIN do host. A TV mostra o QR com `<origem>/j/<código da sala>`. A origem é o `PUBLIC_BASE_URL`, quando definido (domínio do túnel ou IP da rede local), seja qual for o endereço pelo qual a TV foi aberta: assim o QR serve tanto para quem está em casa quanto para quem está fora. Sem ele, vale a URL da TV.
+2. A TV abre `/tv`, entra com o PIN da TV (`TV_PIN`, `POST /api/tv/login`) na primeira vez e fica com um cookie de TV, que toca a fila e adiciona músicas: tocar, pausar, pular, mudar o tom da música que está tocando e, pelo menu lateral da TV, buscar e adicionar, e remover ou mudar o tom das músicas que ela adicionou. O PIN do host também abre a TV, porque o host pode tudo. O PIN da TV não abre o que é só do host: no menu da TV, as abas Gerenciar Acervo e Painel pedem o PIN do host ali mesmo, e "Sair do admin" (`POST /api/host/logout`) apaga o cookie de host e deixa o da TV. A tela de PIN da TV tem também o link "Acessar como admin", para o `/host`. A TV mostra o QR com `<origem>/j/<código da sala>`. A origem é o `PUBLIC_BASE_URL`, quando definido (domínio do túnel ou IP da rede local), seja qual for o endereço pelo qual a TV foi aberta: assim o QR serve tanto para quem está em casa quanto para quem está fora. Sem ele, vale a URL da TV.
 3. O celular abre o link e escolhe como entrar. **Convidado:** informa um apelido e chama `POST /api/rooms/{code}/join`. **Admin:** digita o PIN (`POST /api/host/login`) e vai para a tela do host. As telas de PIN não dizem onde o PIN fica guardado.
 4. O servidor gera um token aleatório de 32 bytes, guarda só o hash em `guests` e devolve o token num cookie `HttpOnly` e `SameSite=Lax` (mais `Secure` quando via HTTPS).
 5. Toda ação do celular leva o cookie. O servidor descobre o `guest_id` por ele e checa a permissão. IDs de dono enviados pelo cliente nunca são confiados.
@@ -280,10 +280,10 @@ Convidados entram pelo QR Code sem criar conta. O servidor dá a cada celular um
 
 | Ação | Dono da entrada | Outro convidado | TV | Host |
 | --- | --- | --- | --- | --- |
-| Buscar e adicionar música | Sim | Sim | Não | Sim |
-| Remover entrada da fila (se estiver tocando, pula) | Sim | Não | Não | Sim |
-| Mudar o tom da entrada | Sim | Não | Só a que está tocando | Sim |
-| Responder se a letra deve ser transcrita | Sim | Não | Não | Sim |
+| Buscar e adicionar música | Sim | Sim | Sim | Sim |
+| Remover entrada da fila (se estiver tocando, pula) | Sim | Não | As que ela adicionou | Sim |
+| Mudar o tom da entrada | Sim | Não | As que ela adicionou e a que está tocando | Sim |
+| Responder se a letra deve ser transcrita | Sim | Não | As que ela adicionou | Sim |
 | Reordenar a fila | Não | Não | Não | Sim |
 | Tocar, pausar, pular | Não | Não | Sim | Sim |
 | Ajustar voz guia e atraso da TV | Não | Não | Não | Sim |
@@ -291,7 +291,7 @@ Convidados entram pelo QR Code sem criar conta. O servidor dá a cada celular um
 | Marcar música do acervo como removida | Não | Não | Não | Sim |
 | Desfazer a remoção de uma música | Não | Não | Não | Sim |
 
-A coluna TV vale para pedidos à API. A voz guia e o atraso que a própria TV ajusta na tela ficam só no navegador dela.
+A coluna TV vale para pedidos à API. A voz guia e o atraso que a própria TV ajusta na tela ficam só no navegador dela. A TV é dona das músicas que adiciona, como um convidado é das dele: cada sala ganha um convidado interno "TV" (com `token_hash` igual a `tv:<id da sala>`, que nenhum celular consegue ter, porque o de um convidado é um sha256), e as músicas da TV ficam no nome dele. Na fila elas aparecem como adicionadas por "TV", e o nome de quem canta é o que for digitado.
 
 A regra mora numa única função `can(ator, ação, entrada)`, chamada por todas as rotas e coberta por testes linha a linha desta matriz.
 
@@ -311,6 +311,14 @@ A TV é dona da reprodução. Ela toca os dois stems com a Web Audio API, desenh
 - A próxima música é baixada e decodificada enquanto a atual toca, então a troca é imediata.
 - Memória: um stem estéreo de 4 minutos decodificado ocupa cerca de 92 MB; com dois stems e a próxima música, perto de 370 MB.
 - O navegador exige um clique antes de tocar áudio. A TV mostra um botão "Iniciar" uma vez por sessão.
+
+**Menu lateral**
+
+- Um botão "☰ Menu" na borda direita da TV, recolhido por padrão. Aberto, o menu é uma coluna à direita, ao lado da TV e nunca por cima: a TV encolhe para o espaço que sobra, e a letra, o QR e os controles continuam visíveis, para o menu poder ficar aberto durante a música. No celular, onde a coluna não cabe, o menu abre por cima da tela inteira.
+- Abas: **Sala**, com as sub-abas **Fila** e **Adicionar Música**, para quem entrou com o PIN da TV; **Gerenciar Acervo** e **Painel** pedem o PIN do host na própria aba. Com o PIN da TV, a Fila mostra a fila e o andamento e deixa remover e mudar o tom das músicas que a TV adicionou; com o do host, faz o que o `/host` faz (reordenar, remover, tentar de novo, abrir sala nova).
+- As mesmas abas e sub-abas, com os mesmos nomes, estão no `/host` (Sala, Gerenciar Acervo e Painel) e no celular do convidado (só a Sala), para os três menus serem coerentes.
+- Desbloqueado o host, aparece "Sair do admin", que volta a bloquear Gerenciar Acervo e Painel. Se a própria TV entrou com o PIN do host, sair do admin pede o PIN de novo.
+- Fecha pelo "✕ Fechar" ou pelo Esc; o que se digita no menu não chega aos atalhos da TV (espaço e setas).
 
 **Letra**
 
@@ -343,7 +351,7 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `GET /api/search?q=` | Convidado | Busca no YouTube via yt-dlp; cada resultado traz `in_library`. Cache de 10 minutos por termo |
 | `POST /api/rooms/{code}/join` | Quem tem o código | Cria o convidado e devolve o cookie |
 | `GET /api/rooms/{code}/queue` | Convidado | Fila atual |
-| `POST /api/rooms/{code}/queue` | Convidado | Adiciona `{video_id, singer_name, semitones}` |
+| `POST /api/rooms/{code}/queue` | Convidado, TV ou host | Adiciona `{video_id, singer_name, semitones}` |
 | `PATCH /api/rooms/{code}/queue/{id}` | Dono (tom), TV (tom da entrada que está tocando) ou host (tom e posição) | Altera a entrada |
 | `DELETE /api/rooms/{code}/queue/{id}` | Dono ou host | Remove a entrada (remoção lógica) |
 | `POST /api/rooms/{code}/queue/{id}/transcription` | Dono ou host | Responde à pergunta: `{"accept": true}` transcreve; `false` remove a entrada |
@@ -351,6 +359,7 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `GET /api/preview/{video_id}` | Convidado | Prévia de um vídeo ainda não baixado, antes de adicioná-lo: a API acha o áudio com o yt-dlp e o repassa, com Range. Músicas do acervo tocam a prévia direto de `/media` |
 | `GET /api/library?q=` | Convidado | Acervo de músicas prontas; removidas ficam de fora. Com `removed=true` (só o host), lista as removidas, para desfazer a remoção |
 | `POST /api/host/login` | Qualquer um | Troca o PIN do host por um cookie de host |
+| `POST /api/host/logout` | Qualquer um | Apaga o cookie de host ("Sair do admin" no menu da TV); o cookie de TV e o de convidado ficam |
 | `POST /api/tv/login` | Qualquer um | Troca o PIN da TV (`TV_PIN`) por um cookie de TV; o PIN do host, digitado na tela da TV, vale um cookie de host. Divide com o login do host o limite de tentativas erradas por endereço |
 | `POST /api/rooms` | Host | Abre a sala da noite e gera o código; a anterior é encerrada. Com `{"move_queue": true}`, as entradas que esperavam passam para a sala nova, na mesma ordem, e só o host pode removê-las |
 | `GET /api/rooms/active` | Host ou TV | Sala ativa: código, nome e a origem pública do QR (`PUBLIC_BASE_URL`). A TV usa para achar a fila e montar o QR |

@@ -40,6 +40,7 @@ export function QueueList({
   };
 
   if (entries.length === 0) return <p className="py-8 text-center text-zinc-400">A fila está vazia.</p>;
+  const firstMovable = entries.filter((entry) => entry.status === "playing").length;
   return (
     <div className="flex flex-col gap-3">
       <ol className="flex flex-col gap-3">
@@ -72,9 +73,10 @@ export function QueueList({
                     {statusText(entry, progress)}
                   </p>
                 </div>
-                {isHost && (
+                {/* The song that is playing keeps its place, and nothing goes above it */}
+                {isHost && entry.status !== "playing" && (
                   <div className="flex flex-col gap-1">
-                    <button className={small} disabled={index === 0} onClick={() => run(entry.id, () => api.change(code, entry.id, { position: index - 1 }))} aria-label="Subir na fila">
+                    <button className={small} disabled={index <= firstMovable} onClick={() => run(entry.id, () => api.change(code, entry.id, { position: index - 1 }))} aria-label="Subir na fila">
                       ↑
                     </button>
                     <button className={small} disabled={index === entries.length - 1} onClick={() => run(entry.id, () => api.change(code, entry.id, { position: index + 1 }))} aria-label="Descer na fila">

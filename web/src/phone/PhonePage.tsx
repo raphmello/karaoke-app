@@ -1,18 +1,17 @@
-// /m/<code>: the guest's phone. In the Room tab, search YouTube or the library and add songs (with the key they start in), follow the queue, change the
-// key of one's own entries, remove them and answer the transcription question.
+// /m/<code>: the guest's phone. Its one tab, "Sala", has the same two sub-tabs as the TV's menu and the host's
+// screen: "Adicionar Música" (search YouTube or the library and add songs, with the key they start in) and "Fila"
+// (follow the queue, change the key of one's own entries, remove them and answer the transcription question).
 import { useEffect, useState } from "react";
 import { onSessionLost } from "../api";
 import { AddSong } from "../room/AddSongs";
 import { QueueList } from "../room/QueueList";
+import { type RoomTab, RoomTabsNav } from "../room/RoomTabs";
 import { useRoom } from "../room/useRoom";
 import { loadNickname } from "./identity";
 
-type Tab = "room" | "queue";
-const TAB_NAMES: Record<Tab, string> = { room: "Sala", queue: "Fila" };
-
 export function PhonePage({ code }: { code: string }) {
   const room = useRoom(code);
-  const [tab, setTab] = useState<Tab>("room");
+  const [tab, setTab] = useState<RoomTab>("add"); // a guest comes to add a song
   const [notice, setNotice] = useState<string | null>(null);
 
   // Without a cookie of this room, the phone joins first: on a closed socket or any request the API refuses.
@@ -22,8 +21,7 @@ export function PhonePage({ code }: { code: string }) {
   useEffect(() => onSessionLost(() => location.replace(`/j/${code}`)), [code]);
 
   const added = (title: string) => {
-    setNotice(`"${title}" entrou na fila.`);
-    setTab("queue");
+    setNotice(`"${title}" entrou na fila.`); // the phone stays where it is: only the notice
     window.setTimeout(() => setNotice(null), 4000);
   };
   const waiting = room.entries?.filter((e) => e.mine && e.status === "awaiting_decision").length ?? 0;
@@ -42,18 +40,10 @@ export function PhonePage({ code }: { code: string }) {
             {!room.connected && " · reconectando…"}
           </span>
         </div>
-        <nav className="mt-3 grid grid-cols-2 gap-2 pb-3">
-          {(["room", "queue"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`rounded-lg py-2 font-semibold ${tab === t ? "bg-amber-400 text-zinc-950" : "bg-zinc-900 text-zinc-300"}`}
-            >
-              {TAB_NAMES[t]}
-              {t === "queue" && room.entries ? ` (${room.entries.length})` : ""}
-            </button>
-          ))}
-        </nav>
+        <div className="mt-3 pb-3">
+          <p className="mb-2 text-sm font-semibold tracking-widest text-amber-300 uppercase">Sala</p>
+          <RoomTabsNav value={tab} onChange={setTab} count={room.entries?.length} />
+        </div>
         {waiting > 0 && tab !== "queue" && (
           <button className="mb-3 w-full rounded-lg bg-amber-950 px-3 py-2 text-left text-sm text-amber-200" onClick={() => setTab("queue")}>
             Uma música sua precisa de resposta sobre a letra. Toque para ver.
@@ -62,7 +52,7 @@ export function PhonePage({ code }: { code: string }) {
         {notice && <p className="mb-3 rounded-lg bg-emerald-950 px-3 py-2 text-sm text-emerald-200">{notice}</p>}
       </header>
       <main className="flex-1 px-4 pt-4 pb-8">
-        {tab === "room" ? (
+        {tab === "add" ? (
           <AddSong code={code} onAdded={added} />
         ) : room.entries ? (
           <QueueList code={code} entries={room.entries} progress={room.progress} isHost={false} />

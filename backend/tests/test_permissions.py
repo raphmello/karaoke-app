@@ -12,7 +12,7 @@ ENTRY = QueueEntry(id=1, room_id=1, video_id="dQw4w9WgXcQ", guest_id="owner", po
 
 MATRIX = [
     # action, owner, other guest, TV, host (the TV's key change of the entry that plays has its own test)
-    (Action.ADD, True, True, False, True),
+    (Action.ADD, True, True, True, True),
     (Action.REMOVE_ENTRY, True, False, False, True),
     (Action.CHANGE_KEY, True, False, False, True),
     (Action.ANSWER_TRANSCRIPTION, True, False, False, True),
@@ -61,5 +61,15 @@ def test_a_phone_that_is_the_tv_and_a_guest_has_both_sets_of_rights():
     assert not both.is_host and both.owner_id == "owner"
 
 
-def test_nothing_in_the_queue_is_the_tvs():
-    assert not TV.is_host and TV.owner_id not in (None, "owner", "other")
+def test_the_tv_owns_what_its_room_guest_added():
+    tv_guest = Guest(id="tv-guest", room_id=1, nickname="TV", token_hash="tv:1")
+    tv = Actor(tv=True, tv_guest=tv_guest)
+    its = QueueEntry(id=5, room_id=1, video_id="dQw4w9WgXcQ", guest_id="tv-guest", position=3, status="queued")
+    assert can(tv, Action.REMOVE_ENTRY, its) and can(tv, Action.CHANGE_KEY, its) and tv.owns(its)
+    assert not can(tv, Action.REMOVE_ENTRY, ENTRY) and not tv.owns(ENTRY)
+    assert not can(OWNER, Action.REMOVE_ENTRY, its)  # a guest is never the TV's guest
+    assert not Actor(tv_guest=tv_guest).owner_ids  # without the TV cookie the TV's guest counts for nothing
+
+
+def test_the_tv_without_its_guest_owns_nothing():
+    assert not TV.is_host and not TV.owner_ids and not TV.owns(ENTRY)

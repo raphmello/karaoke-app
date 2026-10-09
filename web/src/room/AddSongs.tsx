@@ -233,7 +233,7 @@ export function AddSong({ code, onAdded }: { code: string; onAdded?: (title: str
   return (
     <section className="flex flex-col gap-3 rounded-xl bg-zinc-900 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">Adicionar música</h2>
+        <h2 className="text-lg font-semibold">Adicionar Música</h2>
         <div className="flex gap-2">
           {([["search", "Buscar no YouTube"], ["library", "Acervo"]] as const).map(([id, label]) => (
             <button

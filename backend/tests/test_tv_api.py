@@ -1,4 +1,5 @@
-"""The TV's own PIN (docs/ARCHITECTURE.md, "Como alguém entra"): it plays the queue and nothing of /host."""
+"""The TV's own PIN (docs/ARCHITECTURE.md, "Como alguém entra"): it plays the queue and adds songs, and nothing of
+/host."""
 from fastapi.testclient import TestClient
 from helpers import PIN, TV_PIN, Caller, cookie_of
 
@@ -8,8 +9,8 @@ from karaoke.core.config import Settings
 VIDEO = "dQw4w9WgXcQ"
 
 
-def add(caller, code, video=VIDEO):
-    response = caller.post(f"/api/rooms/{code}/queue", json={"video_id": video})
+def add(caller, code, video=VIDEO, **body):
+    response = caller.post(f"/api/rooms/{code}/queue", json={"video_id": video, **body})
     assert response.status_code == 201, response.text
     return response.json()["id"]
 
@@ -83,11 +84,46 @@ def test_the_phone_that_is_the_tv_can_also_join_and_sing(app, client, phone, cod
     assert both.delete(f"/api/rooms/{code}/queue/{mine}").status_code == 204
 
 
+def test_the_tv_owns_the_songs_it_adds(tv, phone, host, code, db):
+    # The TV's menu: "Adicionar Música". The TV owns what it adds, through the room's "TV" guest: it changes the key
+    # and removes it; a guest cannot, and the refusal names the TV
+    entry_id = add(tv, code, singer_name="Vó Maria")
+    entries = tv.get(f"/api/rooms/{code}/queue").json()
+    assert [(e["singer_name"], e["added_by"], e["mine"]) for e in entries] == [("Vó Maria", "TV", True)]
+    assert tv.patch(f"/api/rooms/{code}/queue/{entry_id}", json={"semitones": -2}).status_code == 200
+    ana = phone(code, "Ana")
+    refused = ana.delete(f"/api/rooms/{code}/queue/{entry_id}")
+    assert refused.status_code == 403 and refused.json()["detail"].startswith("Só a TV, que adicionou")
+    assert not ana.get(f"/api/rooms/{code}/queue").json()[0]["mine"]
+    assert tv.delete(f"/api/rooms/{code}/queue/{entry_id}").status_code == 204
+    hosts = add(tv, code)
+    assert host.delete(f"/api/rooms/{code}/queue/{hosts}").status_code == 204  # the host still may
+
+
+def test_the_tv_still_cannot_touch_a_guests_song(tv, phone, code):
+    anas = add(phone(code, "Ana"), code)
+    assert tv.delete(f"/api/rooms/{code}/queue/{anas}").status_code == 403
+    assert tv.patch(f"/api/rooms/{code}/queue/{anas}", json={"semitones": 1}).status_code == 403
+    assert not tv.get(f"/api/rooms/{code}/queue").json()[0]["mine"]
+
+
+def test_leaving_the_admin_drops_the_host_cookie_and_keeps_the_tv(app, client, code):
+    # The TV unlocks Acervo and Painel with the host's PIN, then "Sair do admin"
+    tv_login = TestClient(app).post("/api/tv/login", json={"pin": TV_PIN})
+    host_login = TestClient(app).post("/api/host/login", json={"pin": PIN})
+    both = Caller(client, f"{cookie_of(tv_login)}; {cookie_of(host_login)}")
+    assert both.get("/api/jobs").status_code == 200
+    out = both.post("/api/host/logout")
+    assert out.status_code == 204 and 'karaoke_host=""' in out.headers["set-cookie"] and "Max-Age=0" in out.headers["set-cookie"]
+    tv_only = Caller(client, cookie_of(tv_login))  # what the browser keeps
+    assert tv_only.get("/api/jobs").status_code == 401
+    assert tv_only.get("/api/rooms/active").json()["code"] == code
+
+
 def test_the_tv_cannot_do_what_belongs_to_the_host_or_the_guests(tv, phone, code):
     ana = phone(code, "Ana")
     anas = add(ana, code)
     assert tv.post("/api/rooms", json={}).status_code == 401
-    assert tv.post(f"/api/rooms/{code}/queue", json={"video_id": VIDEO}).status_code == 403
     assert tv.delete(f"/api/rooms/{code}/queue/{anas}").status_code == 403
     assert tv.patch(f"/api/rooms/{code}/queue/{anas}", json={"position": 1}).status_code == 403
     assert tv.post(f"/api/rooms/{code}/player/guide", json={"value": 50}).status_code == 403

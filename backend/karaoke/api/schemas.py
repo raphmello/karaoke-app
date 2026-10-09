@@ -143,7 +143,7 @@ class QueueEntryOut(BaseModel):
             singer_name=entry.singer_name,
             semitones=entry.semitones,
             added_by=nickname or "host",
-            mine=entry.guest_id == actor.owner_id,
+            mine=actor.owns(entry),
             song=SongOut.of(song),
         )
 

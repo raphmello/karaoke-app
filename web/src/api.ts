@@ -153,6 +153,16 @@ export const api = {
   jobs: () => request<Job[]>("/api/jobs"),
   // Whether this browser is the host's: the jobs panel answers the host alone (the active room answers the TV too)
   hostCheck: () => request<Job[]>("/api/jobs?limit=1").then(() => true),
+  // The TV's menu asks the same, but a "no" there only locks Acervo and Painel: it must not send the TV to its PIN
+  isHost: () =>
+    request<Job[]>("/api/jobs?limit=1", undefined, true).then(
+      () => true,
+      (error) => {
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) return false;
+        throw error;
+      },
+    ),
+  hostLogout: () => request<void>("/api/host/logout", send("POST"), true), // "Sair do admin" on the TV's menu
   disk: () => request<Disk>("/api/disk"),
 };
 

@@ -201,9 +201,13 @@ def close_rooms(session: Session, new_room: Room, move_queue: bool) -> list[int]
 
 
 def move_entry(session: Session, room: Room, entry: QueueEntry, index: int) -> None:
-    """Put the entry at `index` (0 = first) among the room's active entries, and renumber them all."""
+    """Put the entry at `index` (0 = first) among the room's active entries, and renumber them all. The entry that
+    is playing keeps its place, and nothing goes above it."""
+    if entry.status == PLAYING:
+        raise QueueError("A música que está tocando não muda de lugar na fila.")
     entries = [e for e, _, _ in queue_rows(session, room) if e.id != entry.id]
-    entries.insert(max(0, min(index, len(entries))), entry)
+    first = sum(1 for e in entries if e.status == PLAYING)  # below what is playing
+    entries.insert(max(first, min(index, len(entries))), entry)
     for position, item in enumerate(entries, start=1):
         item.position = position
 

@@ -11,6 +11,7 @@ import { useCompact } from "./compact";
 import { JoinQr } from "./JoinQr";
 import { useLook } from "./look";
 import { type PlayerReport, PlayerScreen } from "./PlayerScreen";
+import { TvMenuLayout } from "./TvMenu";
 
 const COUNTDOWN_S = 5; // between songs (docs/ARCHITECTURE.md, "Entre músicas")
 
@@ -64,31 +65,37 @@ export function TvPage() {
       />
     );
   }
+  // From here on, the TV has its menu on the right (docs/ARCHITECTURE.md, "Menu lateral")
   if (room) {
     return (
-      <TvRoom
-        key={room.code}
-        room={room}
-        engine={engine}
-        onEngine={setEngine}
-        closed={closed ? { next, go: () => next && (setRoom(next), setClosed(false)) } : null}
-        onClosed={() => {
-          setClosed(true);
-          void queryClient.invalidateQueries({ queryKey: ["active-room"] });
-        }}
-      />
+      <TvMenuLayout room={closed ? null : room}>
+        <TvRoom
+          key={room.code}
+          room={room}
+          engine={engine}
+          onEngine={setEngine}
+          closed={closed ? { next, go: () => next && (setRoom(next), setClosed(false)) } : null}
+          onClosed={() => {
+            setClosed(true);
+            void queryClient.invalidateQueries({ queryKey: ["active-room"] });
+          }}
+        />
+      </TvMenuLayout>
     );
   }
   return (
-    <Centered>
-      <p className="text-3xl font-bold">Nenhuma sala aberta</p>
-      <p className="text-xl text-zinc-400">Abra a sala da noite na tela do host (/host). A TV entra nela sozinha.</p>
-      <AdminLink />
-    </Centered>
+    <TvMenuLayout room={null}>
+      <Centered>
+        <p className="text-3xl font-bold">Nenhuma sala aberta</p>
+        <p className="text-xl text-zinc-400">
+          Abra a sala da noite no menu ☰, à direita, ou na tela do host (/host). A TV entra nela sozinha.
+        </p>
+      </Centered>
+    </TvMenuLayout>
   );
 }
 
-/** The way from the TV to the host's screen, which asks for the same PIN. */
+/** The way from the TV's PIN screen to the host's screen; past the PIN, the TV's menu is the way to the host. */
 function AdminLink() {
   return (
     <a className="text-center text-sm text-zinc-400 underline hover:text-zinc-200" href="/host">
@@ -139,7 +146,6 @@ function TvRoom({
           Iniciar
         </button>
         {error && <p className="text-red-400">{error}</p>}
-        <AdminLink />
       </Centered>
     );
   }

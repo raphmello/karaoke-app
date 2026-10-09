@@ -35,8 +35,8 @@ Na TV, os botões **−½ tom**, **+½ tom** e **Voltar ao tom original** mudam 
 
 O `/host` tem três abas:
 
-- **Sala:** abrir a sala, tocar, pausar e pular (entre músicas, pular passa a próxima), voz guia e atraso da TV, e a fila, para reordenar, remover e tentar de novo uma música que falhou.
-- **Acervo:** trocar a letra (colando LRC ou texto; só o alinhamento roda de novo), reprocessar etapas, remover e desfazer a remoção, e ver o histórico de cada música.
+- **Sala:** abrir a sala, tocar, pausar e pular (entre músicas, pular passa a próxima), voz guia e atraso da TV, e as sub-abas **Fila** (reordenar, remover e tentar de novo uma música que falhou) e **Adicionar Música**. O celular do convidado tem a mesma Sala, e a TV, as mesmas abas no menu ☰ à direita.
+- **Gerenciar Acervo:** trocar a letra (colando LRC ou texto; só o alinhamento roda de novo), reprocessar etapas, remover e desfazer a remoção, e ver o histórico de cada música.
 - **Painel:** os jobs, com "Tentar de novo" para os que falharam, e o disco, com aviso quando o espaço estiver acabando.
 
 Para mexer no frontend sem reconstruir a imagem, com a pilha no ar:

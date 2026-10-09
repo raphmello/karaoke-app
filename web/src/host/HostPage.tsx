@@ -9,6 +9,7 @@ import { HostLogin } from "../room/HostLogin";
 import { LibraryAdmin } from "./LibraryAdmin";
 import { Panel } from "./Panel";
 import { QueueList } from "../room/QueueList";
+import { type RoomTab, RoomTabs } from "../room/RoomTabs";
 import { useRoom } from "../room/useRoom";
 import { formatTime } from "../tv/time";
 
@@ -45,7 +46,7 @@ export function HostPage() {
 }
 
 type Tab = "room" | "library" | "panel";
-const TABS: [Tab, string][] = [["room", "Sala"], ["library", "Acervo"], ["panel", "Painel"]];
+const TABS: [Tab, string][] = [["room", "Sala"], ["library", "Gerenciar Acervo"], ["panel", "Painel"]];
 
 function HostTabs({ active, missing, error }: { active: ActiveRoom | null; missing: boolean; error: string | null }) {
   const [tab, setTab] = useState<Tab>("room");
@@ -84,7 +85,7 @@ function HostTabs({ active, missing, error }: { active: ActiveRoom | null; missi
 
 /** "Abrir sala" opens a dialog for the night's name (optional). With a room open, it warns that the current one
  *  closes and its QR stops working. */
-function OpenRoomButton({ replacing }: { replacing: boolean }) {
+export function OpenRoomButton({ replacing }: { replacing: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -192,6 +193,7 @@ function Room({ room }: { room: ActiveRoom }) {
     if (live.closedWith) void queryClient.invalidateQueries({ queryKey: ["active-room"] });
   }, [live.closedWith, queryClient]);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<RoomTab>("queue");
   const playing = live.entries?.find((entry) => entry.id === live.playerState?.entry_id);
   const control = async (action: "play" | "pause" | "skip") => {
     setError(null);
@@ -242,16 +244,19 @@ function Room({ room }: { room: ActiveRoom }) {
         {error && <p className="text-sm text-red-400">{error}</p>}
       </section>
 
-      <AddSong code={room.code} />
-
-      <section>
-        <h2 className="mb-3 text-lg font-semibold">Fila</h2>
-        {live.entries ? (
-          <QueueList code={room.code} entries={live.entries} progress={live.progress} isHost />
-        ) : (
-          <p className="text-zinc-400">Carregando a fila…</p>
-        )}
-      </section>
+      <RoomTabs
+        value={tab}
+        onChange={setTab}
+        count={live.entries?.length}
+        queue={
+          live.entries ? (
+            <QueueList code={room.code} entries={live.entries} progress={live.progress} isHost />
+          ) : (
+            <p className="text-zinc-400">Carregando a fila…</p>
+          )
+        }
+        add={<AddSong code={room.code} />}
+      />
     </>
   );
 }
