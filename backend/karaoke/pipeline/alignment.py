@@ -3,8 +3,10 @@
 - Synced lyrics (LRC): the LRC is the skeleton. The whole text is aligned once only to measure the offset and
   drift between the LRC and this audio, and that measure is checked against where the isolated voice actually
   sings (a whole-song alignment can get lost, as it did in Numb). Every line then starts at its LRC time mapped
-  onto the audio, and its words are aligned inside that line's window alone, so an error cannot spill into the
-  next line. A line whose words cannot be aligned gets them spread by length and is marked low_confidence.
+  onto the audio; a line that lands where the voice does not sing (an error in the LRC, as in Battle Symphony)
+  moves to where the singing starts before the next line. Its words are aligned inside that line's window alone,
+  so an error cannot spill into the next line. A line whose words cannot be aligned gets them spread by length
+  and is marked low_confidence.
 - Plain lyrics: the whole text is aligned at once.
 - No lyrics, transcription authorized: Whisper transcribes the voice.
 
@@ -30,6 +32,8 @@ HOP = 0.05  # seconds per frame of the voice's energy
 VOICED = 0.1  # a frame sings when its energy passes this share of the loud frames' (95th percentile)
 SEARCH = 60.0  # the plain offsets tried, in seconds each way
 MARGIN = 0.05  # how much better (F1) a plain offset must cover the voice to replace Whisper's fit
+SILENT = 0.1  # a line whose window has less voice than this share landed where nobody sings
+MIN_RUN = 0.5  # seconds of unbroken voice that count as the singing starting
 
 
 def fit_line(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
@@ -103,6 +107,37 @@ def check_fit(stamps: list[dict], slope: float, intercept: float, voiced: np.nda
     return slope, intercept, {**info, "mapping": "whisper"}
 
 
+def first_voice(voiced: np.ndarray, start: float, end: float) -> float | None:
+    """Where the first MIN_RUN of unbroken voice begins between start and end; None when there is none."""
+    run = int(MIN_RUN / HOP)
+    a, b = max(int(start / HOP), 0), min(int(end / HOP), len(voiced))
+    count = 0
+    for i in range(a, b):
+        count = count + 1 if voiced[i] else 0
+        if count == run:
+            return round((i - run + 1) * HOP, 3)
+    return None
+
+
+def move_silent_lines(lines: list[dict], voiced: np.ndarray) -> int:
+    """A line whose window is nearly silent was put where nobody sings: an error in the LRC, not a pause (in Battle
+    Symphony a first line at 2 s, over an instrumental intro, sung at 27.8 s). It moves to where the singing starts
+    before the next line, and ends where that one begins. Lines change in place; returns how many moved."""
+    moved = 0
+    for index, line in enumerate(lines):
+        window = voiced[int(line["start"] / HOP): int(line["end"] / HOP)]
+        if len(window) and window.mean() >= SILENT:
+            continue
+        limit = lines[index + 1]["start"] if index + 1 < len(lines) else len(voiced) * HOP
+        onset = first_voice(voiced, line["start"], limit)
+        if onset is None:
+            continue
+        log.info("linha sem voz em %.1f s (%s); movida para %.1f s", line["start"], line["text"][:30], onset)
+        line["start"], line["end"] = onset, round(min(limit, onset + MAX_LINE), 3)
+        moved += 1
+    return moved
+
+
 def uniform_words(line: dict) -> list[dict]:
     """Words spread over the line by their length, for when they cannot be aligned."""
     words = line["text"].split()
@@ -168,15 +203,19 @@ def align_synced(model, vocals: str, stamps: list[dict], language: str | None) -
     slope, intercept = fit_line(x, y)
 
     audio = load_audio(vocals)
-    slope, intercept, checked = check_fit(stamps, slope, intercept, voiced_frames(audio))
+    voiced = voiced_frames(audio)
+    slope, intercept, checked = check_fit(stamps, slope, intercept, voiced)
+    windows = skeleton(stamps, slope, intercept)
+    moved = move_silent_lines(windows, voiced)
     lines = []
-    for line in skeleton(stamps, slope, intercept):
+    for line in windows:
         words = align_line(model, audio, line, language)
         if words:
             lines.append(_line(line["start"], line["end"], words))
         else:
             lines.append(_line(line["start"], line["end"], uniform_words(line), low_confidence=True))
-    return lines, {"offset_s": round(intercept, 2), "drift_pct": round((slope - 1) * 100, 2), **checked}
+    info = {"offset_s": round(intercept, 2), "drift_pct": round((slope - 1) * 100, 2), "moved_lines": moved}
+    return lines, {**info, **checked}
 
 
 def align_plain(model, vocals: str, texts: list[str], language: str | None) -> list[dict]:

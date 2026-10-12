@@ -9,7 +9,9 @@ from karaoke.pipeline.alignment import (
     MAX_LINE,
     SAMPLE_RATE,
     check_fit,
+    first_voice,
     fit_line,
+    move_silent_lines,
     skeleton,
     uniform_words,
     voiced_frames,
@@ -85,6 +87,33 @@ def test_a_lost_whisper_fit_gives_way_to_the_offset_the_voice_shows():
     assert info["mapping"] == "voice"
     assert slope == 1.0 and intercept == pytest.approx(2.0, abs=0.15)
     assert info["voice_f1_offset"] > info["voice_f1_fit"] + 0.05
+
+
+def test_a_line_the_lrc_put_on_silence_moves_to_where_the_singing_starts():
+    # Battle Symphony in small: the LRC puts the first line at 2 s, over an instrumental intro; it is sung at 27.8 s
+    stamps = [{"t": 2.0, "text": "first"}, {"t": 33.0, "text": "second"}, {"t": 40.0, "text": "third"}]
+    voiced = voiced_frames(voice_at([{"t": 27.8, "text": "first"}, {"t": 33.0, "text": "second"},
+                                     {"t": 40.0, "text": "third"}], seconds=50.0))
+    lines = skeleton(stamps, 1.0, 0.0)
+    assert move_silent_lines(lines, voiced) == 1
+    assert lines[0]["start"] == pytest.approx(27.8, abs=HOP) and lines[0]["end"] == 33.0
+    assert (lines[1]["start"], lines[2]["start"]) == (33.0, 40.0)  # the lines with voice stay
+
+
+def test_a_silent_line_with_no_voice_before_the_next_one_stays():
+    stamps = [{"t": 2.0, "text": "first"}, {"t": 20.0, "text": "second"}]
+    voiced = voiced_frames(voice_at([{"t": 20.0, "text": "second"}], seconds=30.0))
+    lines = skeleton(stamps, 1.0, 0.0)
+    assert move_silent_lines(lines, voiced) == 0
+    assert lines[0]["start"] == 2.0
+
+
+def test_the_singing_starts_at_the_first_unbroken_half_second():
+    voiced = np.zeros(int(10 / HOP), dtype=bool)
+    voiced[int(2 / HOP): int(2.2 / HOP)] = True  # a breath, too short
+    voiced[int(5 / HOP): int(7 / HOP)] = True
+    assert first_voice(voiced, 0.0, 10.0) == pytest.approx(5.0)
+    assert first_voice(voiced, 0.0, 4.0) is None
 
 
 def test_a_good_whisper_fit_stays():

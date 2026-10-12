@@ -169,8 +169,9 @@ Cada `video_id` é processado no máximo uma vez. Tudo o que o pipeline produz f
 1. O texto inteiro é alinhado à voz de uma vez, só para medir o deslocamento e a deriva entre o LRC e o áudio. A medida é uma reta robusta: Theil–Sen, refinada sem as linhas a mais de 2 s dela.
     - A reta é conferida contra a energia da voz isolada: o pipeline procura também o melhor deslocamento simples, sem deriva, entre −60 e +60 s, e fica com ele quando as linhas cobrem a voz claramente melhor (margem de 0,05 no F1). Em Numb, o alinhamento da música inteira se perdeu e mediu −21,8 s com deriva de −24%, enquanto o LRC estava certo.
 2. Cada linha começa no tempo do LRC levado para o áudio por essa reta. Ela termina no tempo seguinte do LRC, contando as linhas vazias, que marcam pausas, e dura no máximo 12 s.
-3. As palavras de cada linha são alinhadas pelo stable-ts só dentro da janela da própria linha, com 0,3 s de margem de cada lado. Um erro fica preso naquela linha.
-4. Se as palavras de uma linha não alinharem, elas são distribuídas pelo tamanho e a linha fica `low_confidence`.
+3. Cada linha é conferida contra a voz isolada: uma linha cuja janela tem menos de 10% de voz caiu num trecho em que ninguém canta, um erro do LRC. Ela passa para o começo do primeiro trecho de pelo menos 0,5 s de voz contínua antes da linha seguinte e termina onde a seguinte começa, com no máximo 12 s; sem voz até a linha seguinte, fica onde estava. Em Battle Symphony, o LRC que o LRCLIB devolveu punha a primeira linha a 2 s, numa introdução só instrumental, e a voz só entra aos 27,8 s.
+4. As palavras de cada linha são alinhadas pelo stable-ts só dentro da janela da própria linha, com 0,3 s de margem de cada lado. Um erro fica preso naquela linha.
+5. Se as palavras de uma linha não alinharem, elas são distribuídas pelo tamanho e a linha fica `low_confidence`.
 
 Isso custa ~19 s a mais por música que alinhar só a música inteira.
 
