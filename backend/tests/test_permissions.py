@@ -15,7 +15,7 @@ ENTRY = QueueEntry(id=1, room_id=1, video_id="dQw4w9WgXcQ", guest_id="owner", po
 MATRIX = [
     # action, room's owner, entry's owner, other guest, TV, host (the TV's key change of the entry that plays has
     # its own test). ENTRY is Ana's, not the room owner's.
-    (Action.CREATE_ROOM, True, True, True, False, True),
+    (Action.CREATE_ROOM, True, True, True, True, True),  # a visitor too: see test_rooms_api
     (Action.REMOVE_ROOM, True, False, False, False, True),
     (Action.ADD, True, True, True, True, True),
     (Action.REMOVE_ENTRY, True, True, False, False, True),

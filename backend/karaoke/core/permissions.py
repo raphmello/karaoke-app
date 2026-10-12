@@ -77,7 +77,7 @@ class Action(StrEnum):
 
 GUEST = {Action.ADD, Action.CREATE_ROOM}
 OWNER = {Action.REMOVE_ENTRY, Action.CHANGE_KEY, Action.ANSWER_TRANSCRIPTION}  # of the entry
-TV = {Action.PLAYER, Action.ADD}  # the key of the entry that is playing; and, as an owner, the songs it added
+TV = {Action.PLAYER, Action.ADD, Action.CREATE_ROOM}  # the key of the entry that is playing; and, as an owner, the songs it added
 # The room's owner is the "host" of that room; the library and the panel stay the host's
 ROOM_OWNER = {
     Action.REMOVE_ROOM, Action.ADD, Action.REMOVE_ENTRY, Action.CHANGE_KEY, Action.ANSWER_TRANSCRIPTION,

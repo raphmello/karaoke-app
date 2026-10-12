@@ -1,9 +1,10 @@
-// "Criar sala" (docs/ARCHITECTURE.md, "Salas"): a name, an optional password (none: a public room) and, for a guest,
-// the nickname the room shows as its owner. The other rooms stay open.
+// "Criar sala" (docs/ARCHITECTURE.md, "Salas"): anyone makes a room with a name, an optional password (none: a public
+// room) and, except the admin, the nickname the room shows as its owner, who goes straight into it. The other rooms
+// stay open.
 import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { api, type Room } from "../api";
-import { loadNickname } from "../phone/identity";
+import { loadNickname, saveNickname } from "../phone/identity";
 
 const button = "rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700 disabled:opacity-40";
 
@@ -50,6 +51,7 @@ function CreateRoomDialog({
         password: password || undefined,
         nickname: asHost ? undefined : nickname.trim() || undefined,
       });
+      if (!asHost) saveNickname(nickname.trim());
       await queryClient.invalidateQueries({ queryKey: ["rooms"] });
       onClose();
       onCreated?.(room);
@@ -104,7 +106,13 @@ function CreateRoomDialog({
         {!asHost && (
           <label className="flex flex-col gap-1 text-sm text-zinc-400">
             Seu apelido
-            <input maxLength={40} className={field} value={nickname} onChange={(event) => setNickname(event.target.value)} />
+            <input
+              maxLength={40}
+              className={field}
+              placeholder="Como você aparece na fila"
+              value={nickname}
+              onChange={(event) => setNickname(event.target.value)}
+            />
           </label>
         )}
         <p className="text-sm text-zinc-500">A sala some sozinha 24 h depois de criada.</p>
@@ -115,7 +123,7 @@ function CreateRoomDialog({
           </button>
           <button
             className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950 disabled:opacity-50"
-            disabled={busy || !name.trim()}
+            disabled={busy || !name.trim() || (!asHost && !nickname.trim())}
           >
             Criar sala
           </button>

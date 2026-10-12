@@ -78,6 +78,27 @@ class LoginLimiter:
             self._failures.pop(address, None)
 
 
+class CreationLimiter:
+    """At most `limit` rooms per address in `window_s`: with the app on the internet, anyone may create rooms, and
+    each one can bring downloads and GPU work (docs/ARCHITECTURE.md, "Salas"). In memory, like the login limiter."""
+
+    def __init__(self, limit: int = 3, window_s: float = 3600, clock=time.monotonic):
+        self.limit, self.window_s, self.clock = limit, window_s, clock
+        self._made: dict[str, list[float]] = {}
+        self._lock = threading.Lock()
+
+    def take(self, address: str) -> int:
+        """Counts one creation and returns 0, or, over the limit, the seconds until the next one is allowed."""
+        now = self.clock()
+        with self._lock:
+            recent = [t for t in self._made.get(address, []) if t > now - self.window_s]
+            if len(recent) >= self.limit:
+                self._made[address] = recent
+                return max(1, math.ceil(recent[0] + self.window_s - now))
+            self._made[address] = recent + [now]
+            return 0
+
+
 class HostSigner:
     """Signs the host's and the TV's cookies with a secret that lives only in this process. The role is part of the
     signature, so a TV cookie never passes for a host one.

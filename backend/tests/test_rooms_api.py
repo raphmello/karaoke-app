@@ -1,4 +1,4 @@
-"""Many rooms (docs/ARCHITECTURE.md, "Salas"): a list anyone sees, rooms made by the host or by guests, an optional
+"""Many rooms (docs/ARCHITECTURE.md, "Salas"): a list anyone sees, rooms anyone makes (within limits), an optional
 password, an owner who runs the room, a TV per room, removal and the 24 h expiry."""
 from datetime import timedelta
 
@@ -65,6 +65,36 @@ def test_a_guest_makes_a_room_and_owns_it_even_after_joining_another(host, code,
     info = ana.get(f"/api/rooms/{mine}").json()
     assert (info["owner"], info["mine"], info["manage"], info["protected"]) == ("Ana", True, True, True)
     assert not ana.get(f"/api/rooms/{other}").json()["mine"]
+
+
+def test_a_visitor_in_no_room_makes_one_with_a_nickname_and_owns_it(app, stranger):
+    bia = stranger()
+    refused = bia.post("/api/rooms", json={"name": "Da Bia", "nickname": "  "})
+    assert refused.status_code == 422 and "apelido" in refused.json()["detail"]
+    made = bia.post("/api/rooms", json={"name": "Da Bia", "nickname": "Bia"})
+    assert made.status_code == 201, made.text
+    code = made.json()["code"]
+    room = bia.get(f"/api/rooms/{code}").json()
+    assert (room["owner"], room["mine"], room["joined"], room["manage"]) == ("Bia", True, True, True)
+    add(bia, code)  # already its guest: no join needed
+    assert TestClient(app).get(f"/api/rooms/{code}").json()["mine"] is False  # another browser, no cookie
+
+
+def test_an_address_makes_three_rooms_an_hour_and_the_host_is_not_counted(host, stranger):
+    for n in range(3):
+        assert stranger().post("/api/rooms", json={"name": f"Sala {n}", "nickname": "Ana"}).status_code == 201
+    over = stranger().post("/api/rooms", json={"name": "Mais uma", "nickname": "Ana"})
+    assert over.status_code == 429 and "Muitas salas" in over.json()["detail"]
+    assert int(over.headers["retry-after"]) > 0
+    assert host.post("/api/rooms", json={"name": "Do host"}).status_code == 201
+
+
+def test_with_twenty_open_rooms_only_the_host_makes_another(host, stranger):
+    for n in range(20):
+        assert host.post("/api/rooms", json={"name": f"Sala {n}"}).status_code == 201
+    full = stranger().post("/api/rooms", json={"name": "Lotada", "nickname": "Ana"})
+    assert full.status_code == 429 and "20 salas abertas" in full.json()["detail"]
+    assert host.post("/api/rooms", json={"name": "Do host, mesmo assim"}).status_code == 201
 
 
 def test_a_room_with_a_password_asks_for_it_and_counts_wrong_ones(host, stranger):

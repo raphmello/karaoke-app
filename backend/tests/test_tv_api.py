@@ -123,7 +123,7 @@ def test_leaving_the_admin_drops_the_host_cookie_and_keeps_the_tv(app, client, c
 def test_the_tv_cannot_do_what_belongs_to_the_host_or_the_guests(tv, phone, code):
     ana = phone(code, "Ana")
     anas = add(ana, code)
-    assert tv.post("/api/rooms", json={"name": "Da TV"}).status_code == 401
+    assert tv.post("/api/rooms", json={"name": "Da TV"}).status_code == 422  # like anyone, with a nickname only
     assert tv.delete(f"/api/rooms/{code}/queue/{anas}").status_code == 403
     assert tv.patch(f"/api/rooms/{code}/queue/{anas}", json={"position": 1}).status_code == 403
     assert tv.post(f"/api/rooms/{code}/player/guide", json={"value": 50}).status_code == 403

@@ -27,11 +27,11 @@ Sobem três serviços: `caddy` (porta 8080, a única exposta, com o frontend com
 ## Uma noite de karaokê
 
 1. No `.env`, defina `HOST_PIN`, `TV_PIN` (outro PIN, que só abre o player da TV, de qualquer sala) e `PUBLIC_BASE_URL=http://<IP do PC>:8080` (o endereço que os celulares usam).
-2. Em `http://<IP do PC>:8080/` fica a lista das salas abertas. Para criar uma, entre como admin (**Acessar como admin**, com o PIN do host) e use **Criar sala**: um nome e, se quiser, uma senha. Sem senha, a sala é pública.
+2. Em `http://<IP do PC>:8080/` fica a lista das salas abertas. Qualquer pessoa cria uma em **Criar sala**: um nome, se quiser uma senha (sem senha, a sala é pública) e o apelido, e já entra nela como dono. O admin (**Acessar como admin**, com o PIN do host) também cria salas, sem ser dono de nenhuma.
 3. No aparelho ligado à TV, abra a lista e toque em **Abrir como TV** na sala. A TV pede a senha da sala ou, em **Usar o PIN do admin**, o PIN do host ou o da TV; o dono da sala só toca em **Iniciar**. Numa sala sem senha, só o dono e o admin abrem a TV. A TV mostra o QR Code.
 4. Cada convidado lê o QR (ou entra pela lista, com **Entrar na sala**), escolhe um apelido, digita a senha se a sala tiver uma, busca e adiciona músicas, já no tom em que quer começar. Antes de adicionar, **▶ Ouvir** toca uma prévia (do acervo, direto do PC; da busca, repassada do YouTube pela API). A fila toca em ordem, sozinha.
 
-Várias salas podem ficar abertas ao mesmo tempo, cada uma com a sua fila e a sua TV; o acervo é um só. Qualquer convidado de uma sala aberta também cria salas, e vira o dono delas: o dono muda o tom, remove e reordena qualquer música da sala, controla o player pelo celular e pode **Excluir sala**. O admin exclui qualquer sala. Uma sala expira 24 h depois de criada; a tela mostra quanto falta, e o aviso fica amarelo na última meia hora. Quando a sala é excluída ou expira, a música que estiver tocando vai até o fim e as telas levam de volta à lista (**Ver salas**). Uma senha esquecida não se recupera: o admin exclui a sala, ou ela expira.
+Várias salas podem ficar abertas ao mesmo tempo, cada uma com a sua fila e a sua TV; o acervo é um só. Quem cria uma sala vira o dono dela: o dono muda o tom, remove e reordena qualquer música da sala, controla o player pelo celular e pode **Excluir sala**. O admin exclui qualquer sala. Uma sala expira 24 h depois de criada; a tela mostra quanto falta, e o aviso fica amarelo na última meia hora. Quando a sala é excluída ou expira, a música que estiver tocando vai até o fim e as telas levam de volta à lista (**Ver salas**). Uma senha esquecida não se recupera: o admin exclui a sala, ou ela expira.
 
 Na TV, os botões **−½ tom**, **+½ tom** e **Voltar ao tom original** mudam o tom ao vivo (as setas ↑ e ↓ também; espaço pausa). O dono de cada música muda o tom dela pelo celular, e só ele (ou o dono da sala, ou o host) pode removê-la. Quando a letra não é encontrada, o celular do dono pergunta se ela deve ser transcrita; um "não" tira a música da fila sem baixar nada. Entre uma música e outra, a TV mostra o próximo cantor, a música, o tom e o QR, e a próxima começa depois de 5 s.
 
@@ -62,7 +62,7 @@ Com o túnel, o app fica em `https://karaoke.<seu-domínio>` sem abrir portas no
 docker compose --profile remote up -d
 ```
 
-Use um PIN de host forte: 5 tentativas erradas do mesmo endereço bloqueiam o login dele por 10 minutos (vale também para os PINs da TV e as senhas das salas). Uma sala sem senha fica aberta a quem tiver o endereço; com o túnel, crie as salas com senha. Áudios e letras (`/media`) só abrem para o host e para convidados de uma sala aberta.
+Use um PIN de host forte: 5 tentativas erradas do mesmo endereço bloqueiam o login dele por 10 minutos (vale também para os PINs da TV e as senhas das salas). Uma sala sem senha fica aberta a quem tiver o endereço; com o túnel, crie as salas com senha. Como qualquer um com o endereço cria salas, cada endereço cria no máximo 3 por hora, e com 20 salas abertas só o admin cria outra; o admin exclui as que não reconhecer. Áudios e letras (`/media`) só abrem para o host e para convidados de uma sala aberta.
 
 Para o PC ficar sempre pronto: no Windows, desligue a suspensão no plano de energia e deixe o Docker Desktop iniciar com o Windows; os containers voltam sozinhos (`restart: unless-stopped`).
 

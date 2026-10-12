@@ -94,8 +94,9 @@ def test_without_host_pin_nobody_is_the_host(settings, search):
         assert client.post("/api/host/login", json={"pin": ""}).status_code == 401
 
 
-def test_a_stranger_cannot_open_a_room_and_a_room_needs_a_name(app, client):
-    assert new_client(app).post("/api/rooms", json={"name": "Minha"}).status_code == 401
+def test_a_stranger_opens_a_room_with_a_nickname_and_a_room_needs_a_name(app, client):
+    assert new_client(app).post("/api/rooms", json={"name": "Minha"}).status_code == 422  # no nickname
+    assert new_client(app).post("/api/rooms", json={"name": "Minha", "nickname": "Ana"}).status_code == 201
     assert host(client).post("/api/rooms", json={"name": "   "}).status_code == 422
 
 

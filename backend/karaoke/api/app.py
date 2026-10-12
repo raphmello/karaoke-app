@@ -12,7 +12,7 @@ from karaoke.api.preview import PreviewSource
 from karaoke.api.realtime import Hub
 from karaoke.api.routes import api, internal, sockets
 from karaoke.api.search import CachedSearch, SearchFn, youtube_search
-from karaoke.core.auth import HostSigner, LoginLimiter
+from karaoke.core.auth import CreationLimiter, HostSigner, LoginLimiter
 from karaoke.core.config import Settings, load_settings
 from karaoke.core.db import make_engine, make_sessionmaker, migrate, transaction
 from karaoke.core.songs import expire_rooms
@@ -75,6 +75,7 @@ def create_app(
     app.state.hub = Hub(app.state.sessions)
     app.state.host_signer = HostSigner()
     app.state.login_limiter = LoginLimiter()
+    app.state.creation_limiter = CreationLimiter()
     app.state.search = CachedSearch(search)
     app.state.preview = preview or PreviewSource()
     app.include_router(api)

@@ -10,8 +10,6 @@ export function RoomsPage() {
   const rooms = useQuery({ queryKey: ["rooms"], queryFn: api.rooms, refetchInterval: 15000 });
   const host = useQuery({ queryKey: ["tv-is-host"], queryFn: api.isHost, retry: false });
   const isHost = host.data === true;
-  // Anyone in a room, or the host, may make one; a stranger first joins a room (or enters as the admin)
-  const mayCreate = isHost || (rooms.data ?? []).some((room) => room.joined);
 
   return (
     <main className="mx-auto flex min-h-full max-w-2xl flex-col gap-6 px-4 py-6">
@@ -23,7 +21,8 @@ export function RoomsPage() {
             TV, use <span className="font-semibold text-zinc-200">Abrir como TV</span>.
           </p>
         </div>
-        {mayCreate && <CreateRoomButton asHost={isHost} onCreated={(room) => location.assign(`/m/${room.code}`)} />}
+        {/* Anyone makes a room and becomes its owner; the admin makes it as no one's */}
+        <CreateRoomButton asHost={isHost} onCreated={(room) => location.assign(isHost ? `/host?sala=${room.code}` : `/m/${room.code}`)} />
       </header>
 
       {rooms.isPending ? (
@@ -41,7 +40,6 @@ export function RoomsPage() {
       )}
 
       <footer className="mt-auto flex flex-col items-center gap-2 text-center text-sm text-zinc-500">
-        {!mayCreate && <p>Para criar uma sala, entre primeiro numa sala ou como admin.</p>}
         <a className="text-zinc-400 underline hover:text-zinc-200" href="/host">
           Acessar como admin
         </a>

@@ -85,7 +85,12 @@ class LoginIn(BaseModel):
 class RoomIn(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     password: str | None = Field(default=None, max_length=64)  # none or empty: a public room
-    nickname: str | None = Field(default=None, max_length=40)  # the owner's, when a guest makes it
+    nickname: str | None = Field(default=None, max_length=40)  # the owner's; needed from someone in no room yet
+
+    @field_validator("nickname")
+    @classmethod
+    def no_blank_nickname(cls, value: str | None) -> str | None:
+        return (value or "").strip() or None
 
     @field_validator("name")
     @classmethod

@@ -17,7 +17,7 @@ from typing import Annotated
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.websockets import WebSocketDisconnected
 
@@ -269,14 +269,34 @@ def room(request: Request, db: Sessions, settings: AppSettings, code: str) -> Ro
         return room_out(found, session, deps.find_actor(request, session, found), settings)
 
 
+MAX_OPEN_ROOMS = 20  # beyond it only the host makes another (docs/ARCHITECTURE.md, "Salas")
+
+
 @api.post("/rooms", status_code=201)
-def create_room(request: Request, db: Sessions, body: RoomIn) -> RoomOut:
-    """A new room, beside the others. The host makes it as no one's; a guest of any open room makes it as its owner,
-    with the same phone token, so it stays the owner after joining other rooms."""
+def create_room(request: Request, response: Response, db: Sessions, body: RoomIn) -> RoomOut:
+    """A new room, beside the others. Anyone may make one: the host makes it as no one's; anyone else becomes its
+    owner and its guest, with the phone's token (a new one for a phone that had none), so it stays the owner after
+    joining other rooms. Someone in no room yet gives a nickname. Except for the host, an address makes a few rooms
+    an hour, and none once many are open."""
     with transaction(db) as session:
         actor = deps.find_actor(request, session)
-        if actor is None or not can(actor, Action.CREATE_ROOM):
-            raise HTTPException(401, "Entre numa sala, ou como admin, para criar uma sala.")
+        is_host = actor is not None and actor.is_host
+        if actor is not None and not can(actor, Action.CREATE_ROOM):
+            raise HTTPException(403, "Você não pode criar uma sala.")
+        nickname = None
+        if not is_host:
+            nickname = body.nickname or (actor.guest.nickname if actor and actor.guest else None)
+            if not nickname:
+                raise HTTPException(422, "Informe o seu apelido para criar a sala.")
+            if session.scalar(select(func.count()).select_from(Room).where(*deps.open_rooms())) >= MAX_OPEN_ROOMS:
+                raise HTTPException(429, f"Já há {MAX_OPEN_ROOMS} salas abertas. Tente de novo quando alguma fechar.")
+            if wait := request.app.state.creation_limiter.take(deps.client_address(request)):
+                minutes = max(1, round(wait / 60))
+                raise HTTPException(
+                    429,
+                    f"Muitas salas criadas daqui. Tente de novo em {minutes} minuto{'s' if minutes > 1 else ''}.",
+                    headers={"Retry-After": str(wait)},
+                )
         taken = set(session.scalars(select(Room.code)))
         code = new_room_code()
         while code in taken:
@@ -291,14 +311,16 @@ def create_room(request: Request, db: Sessions, body: RoomIn) -> RoomOut:
         )
         session.add(room)
         session.flush()
-        if not actor.is_host:
-            nickname = body.nickname or actor.guest.nickname
-            owner = Guest(id=str(uuid.uuid4()), room_id=room.id, nickname=nickname,
-                          token_hash=token_hash(deps.phone_token(request)))
+        if not is_host:
+            token = deps.phone_token(request)
+            if token is None:
+                token, _ = new_guest_token()
+                deps.set_cookie(request, response, GUEST_COOKIE, token, GUEST_COOKIE_AGE)
+            owner = Guest(id=str(uuid.uuid4()), room_id=room.id, nickname=nickname, token_hash=token_hash(token))
             session.add(owner)
             session.flush()
             room.owner_guest_id = owner.id
-    log.info("sala %s criada por %s (%s)", code, "host" if actor.is_host else "convidado",
+    log.info("sala %s criada por %s (%s)", code, "host" if is_host else "convidado",
              "com senha" if body.password else "pública")
     return RoomOut(code=room.code, name=room.name, join_path=f"/j/{room.code}")
 

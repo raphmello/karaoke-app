@@ -19,7 +19,7 @@ Na fase 1 tudo roda na rede local. Na fase 2 o mesmo PC fica ligado e é exposto
 7. Entrar pelo QR Code ou pela lista de salas para adicionar e remover músicas. Cada convidado só remove o que ele mesmo adicionou; o dono da sala mexe em qualquer música dela.
 8. A identidade de uma música é o ID do vídeo no YouTube. Vídeo já processado nunca é reprocessado: áudio e letra vêm do armazenamento local.
 9. Quando a letra não é encontrada, o app avisa quem adicionou a música e pergunta se ela deve ser transcrita. Se a resposta for não, nada é processado e a música é marcada como removida, sem apagar o registro, para manter o histórico.
-10. Várias salas ao mesmo tempo, cada uma com a sua fila; o acervo é um só, compartilhado. O host e os convidados criam salas, com senha opcional (sem senha, a sala é pública). Uma sala expira 24 h depois de criada e pode ser removida antes pelo dono ou pelo host.
+10. Várias salas ao mesmo tempo, cada uma com a sua fila; o acervo é um só, compartilhado. Qualquer pessoa que abre o app cria salas, com senha opcional (sem senha, a sala é pública). Uma sala expira 24 h depois de criada e pode ser removida antes pelo dono ou pelo host.
 
 **Requisitos não funcionais**
 
@@ -49,7 +49,7 @@ As escolhas priorizam um único PC com GPU, sem custo recorrente e sem reprocess
 | 11 | Acesso remoto | Cloudflare Tunnel nomeado, com domínio próprio na Cloudflare; Tailscale só para administrar o PC | Convidados não instalam nada; downloads continuam saindo do IP de casa |
 | 12 | Letra ausente | Perguntar ao dono antes de baixar qualquer coisa | Nada pesado roda para uma música que ninguém quer transcrever |
 | 13 | Remoção de músicas | Sempre lógica: `status = removed`, arquivos mantidos e eventos em `song_events` | Nada some; a remoção pode ser desfeita sem reprocessar, e fica o histórico de quem recusou ou removeu, e quando |
-| 14 | Salas | Várias ao mesmo tempo, cada uma com a sua fila e o acervo único; criadas pelo host ou por convidados, com senha opcional, e expiram 24 h depois de criadas | Grupos diferentes usam o mesmo PC sem misturar filas, e o processamento de cada música serve a todos; a senha impede estranhos numa sala exposta na internet |
+| 14 | Salas | Várias ao mesmo tempo, cada uma com a sua fila e o acervo único; criadas por qualquer pessoa que abre o app, com senha opcional, e expiram 24 h depois de criadas | Grupos diferentes usam o mesmo PC sem misturar filas, e o processamento de cada música serve a todos; a senha impede estranhos numa sala exposta na internet |
 
 ## Stack tecnológica
 
@@ -275,7 +275,7 @@ Várias salas ficam abertas ao mesmo tempo, cada uma com a sua fila, e o acervo 
 **Como alguém entra**
 
 1. **A lista de salas** fica em `/` (`GET /api/rooms`): as salas abertas, com nome, quem criou, 🔒 quando têm senha e quanto falta para expirar. Dela se entra numa sala, se abre a TV dela, se cria uma sala nova e se remove a sua.
-2. **Criar sala** (`POST /api/rooms`): o host, pelo `/host` ou pela lista, ou um convidado de qualquer sala aberta, com um nome e, se quiser, uma senha. Sem senha, a sala é pública. Quem cria é o dono da sala; o host não é dono de nenhuma, porque já pode tudo. A sala expira 24 h depois de criada e pode ser removida antes pelo dono ou pelo host (`DELETE /api/rooms/{code}`). Removida ou expirada, ela some da lista, o QR dela para de funcionar e as telas dela recebem o código 4404.
+2. **Criar sala** (`POST /api/rooms`): qualquer pessoa que abre o app, pela lista, ou o host, também pelo `/host`, com um nome e, se quiser, uma senha. Sem senha, a sala é pública. Quem cria é o dono da sala e já entra nela como convidado; quem ainda não está em nenhuma sala informa também um apelido. O host não é dono de nenhuma, porque já pode tudo. Contra abuso, quem não é o host cria no máximo 3 salas por hora por endereço, e com 20 salas abertas ninguém além do host cria outra; passado o limite, a API recusa com uma mensagem clara (429). A sala expira 24 h depois de criada e pode ser removida antes pelo dono ou pelo host (`DELETE /api/rooms/{code}`). Removida ou expirada, ela some da lista, o QR dela para de funcionar e as telas dela recebem o código 4404.
 3. **A TV** abre `/tv/<código da sala>`, pela lista ou por um link. Abrem a TV de uma sala: a senha da sala (`POST /api/rooms/{code}/tv`), o dono da sala, sem digitar a senha, o PIN da TV (`TV_PIN`, `POST /api/tv/login`) ou o PIN do host. Numa sala sem senha, só o dono e o admin (PIN do host ou da TV) abrem a TV; os convidados só entram na sala. Na lista, o botão "Abrir como TV" só aparece para quem pode usá-lo, e "Entrar na sala" é o caminho de quem vai escolher músicas. O cookie de TV diz para qual sala ele vale: o da senha, só para aquela sala; o do PIN da TV, para todas. A TV toca a fila e adiciona músicas: tocar, pausar, pular, mudar o tom da música que está tocando e, pelo menu lateral, buscar e adicionar, e remover ou mudar o tom das músicas que ela adicionou. O que é só do host continua pedindo o PIN do host: no menu da TV, as abas Gerenciar Acervo e Painel pedem o PIN ali mesmo, e "Sair do admin" (`POST /api/host/logout`) apaga o cookie de host e deixa o da TV. A tela de entrada da TV tem também o link "Acessar como admin", para o `/host`. A TV mostra o QR com `<origem>/j/<código da sala>`. A origem é o `PUBLIC_BASE_URL`, quando definido (domínio do túnel ou IP da rede local), seja qual for o endereço pelo qual a TV foi aberta: assim o QR serve tanto para quem está em casa quanto para quem está fora. Sem ele, vale a URL da TV.
 4. **O celular** abre `/j/<código>`, pelo QR ou pela lista, e escolhe como entrar. **Convidado:** informa um apelido e, se a sala tiver senha, a senha (`POST /api/rooms/{code}/join`). Senhas erradas contam no mesmo limite de tentativas dos PINs. **Admin:** digita o PIN do host (`POST /api/host/login`) e vai para a tela do host. As telas de PIN não dizem onde o PIN fica guardado.
 5. O servidor gera um token aleatório de 32 bytes, guarda só o hash em `guests` e devolve o token num cookie `HttpOnly` e `SameSite=Lax` (mais `Secure` quando via HTTPS). O mesmo token vale para todas as salas em que o celular entra: cada sala ganha um convidado com ele, e assim quem criou uma sala continua dono dela depois de entrar em outra.
@@ -283,22 +283,22 @@ Várias salas ficam abertas ao mesmo tempo, cada uma com a sua fila, e o acervo 
 
 **Matriz de permissões**
 
-| Ação | Dono da sala | Dono da entrada | Outro convidado | TV | Host |
-| --- | --- | --- | --- | --- | --- |
-| Criar uma sala | Sim | Sim | Sim | Não | Sim |
-| Remover a sala | A dele | Não | Não | Não | Qualquer uma |
-| Buscar e adicionar música | Sim | Sim | Sim | Sim | Sim |
-| Remover entrada da fila (se estiver tocando, pula) | Qualquer uma | Sim | Não | As que ela adicionou | Sim |
-| Mudar o tom da entrada | Qualquer uma | Sim | Não | As que ela adicionou e a que está tocando | Sim |
-| Responder se a letra deve ser transcrita | Qualquer uma | Sim | Não | As que ela adicionou | Sim |
-| Reordenar a fila | Sim | Não | Não | Não | Sim |
-| Tocar, pausar, pular | Sim | Não | Não | Sim | Sim |
-| Ajustar voz guia e atraso da TV | Sim | Não | Não | Não | Sim |
-| Trocar letra ou reprocessar etapas | Não | Não | Não | Não | Sim |
-| Marcar música do acervo como removida | Não | Não | Não | Não | Sim |
-| Desfazer a remoção de uma música | Não | Não | Não | Não | Sim |
+| Ação | Visitante | Dono da sala | Dono da entrada | Outro convidado | TV | Host |
+| --- | --- | --- | --- | --- | --- | --- |
+| Criar uma sala | Sim | Sim | Sim | Sim | Sim | Sim |
+| Remover a sala | Não | A dele | Não | Não | Não | Qualquer uma |
+| Buscar e adicionar música | Não | Sim | Sim | Sim | Sim | Sim |
+| Remover entrada da fila (se estiver tocando, pula) | Não | Qualquer uma | Sim | Não | As que ela adicionou | Sim |
+| Mudar o tom da entrada | Não | Qualquer uma | Sim | Não | As que ela adicionou e a que está tocando | Sim |
+| Responder se a letra deve ser transcrita | Não | Qualquer uma | Sim | Não | As que ela adicionou | Sim |
+| Reordenar a fila | Não | Sim | Não | Não | Não | Sim |
+| Tocar, pausar, pular | Não | Sim | Não | Não | Sim | Sim |
+| Ajustar voz guia e atraso da TV | Não | Sim | Não | Não | Não | Sim |
+| Trocar letra ou reprocessar etapas | Não | Não | Não | Não | Não | Sim |
+| Marcar música do acervo como removida | Não | Não | Não | Não | Não | Sim |
+| Desfazer a remoção de uma música | Não | Não | Não | Não | Não | Sim |
 
-O dono da sala é o "host" da sala dele: nas outras salas, é um convidado como qualquer outro. O acervo e o painel continuam só do host, porque são de todas as salas. A coluna TV vale para pedidos à API. A voz guia e o atraso que a própria TV ajusta na tela ficam só no navegador dela. A TV é dona das músicas que adiciona, como um convidado é das dele: cada sala ganha um convidado interno "TV" (com `token_hash` igual a `tv:<id da sala>`, que nenhum celular consegue ter, porque o de um convidado é um sha256), e as músicas da TV ficam no nome dele. Na fila elas aparecem como adicionadas por "TV", e o nome de quem canta é o que for digitado.
+Visitante é quem abriu o app e ainda não entrou em nenhuma sala: ele só vê a lista e cria uma sala, que o torna dono e convidado dela. O dono da sala é o "host" da sala dele: nas outras salas, é um convidado como qualquer outro. O acervo e o painel continuam só do host, porque são de todas as salas. A coluna TV vale para pedidos à API. A voz guia e o atraso que a própria TV ajusta na tela ficam só no navegador dela. A TV é dona das músicas que adiciona, como um convidado é das dele: cada sala ganha um convidado interno "TV" (com `token_hash` igual a `tv:<id da sala>`, que nenhum celular consegue ter, porque o de um convidado é um sha256), e as músicas da TV ficam no nome dele. Na fila elas aparecem como adicionadas por "TV", e o nome de quem canta é o que for digitado.
 
 A regra mora numa única função `can(ator, ação, entrada)`, chamada por todas as rotas e coberta por testes linha a linha desta matriz.
 
@@ -308,6 +308,7 @@ A regra mora numa única função `can(ator, ação, entrada)`, chamada por toda
 - Cada sala tem o seu código, e o QR de uma sala removida ou expirada para de funcionar.
 - Sala pública: qualquer um com o endereço entra nela, mas só o dono e o admin abrem a TV dela. Para outra pessoa ser a TV, a sala é criada com senha.
 - Senha esquecida: não há como recuperar; o host remove a sala, ou ela expira.
+- Criação aberta pela internet: qualquer um com o endereço cria salas e adiciona músicas, que baixam e usam a GPU do PC. Os limites de criação (3 por hora por endereço, 20 salas abertas) seguram o abuso, e o host exclui o que não reconhecer.
 
 ## Player da TV e letra palavra por palavra
 
@@ -372,7 +373,7 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `POST /api/host/login` | Qualquer um | Troca o PIN do host por um cookie de host |
 | `POST /api/host/logout` | Qualquer um | Apaga o cookie de host ("Sair do admin" no menu da TV); o cookie de TV e o de convidado ficam |
 | `POST /api/tv/login` | Qualquer um | Troca o PIN da TV (`TV_PIN`) por um cookie de TV que vale para todas as salas; o PIN do host, digitado na tela da TV, vale um cookie de host. Divide com o login do host o limite de tentativas erradas por endereço |
-| `POST /api/rooms` | Host ou convidado de uma sala aberta | Cria uma sala `{name, password?}` com um código novo; quem cria é o dono (o host não é dono). As outras salas continuam abertas |
+| `POST /api/rooms` | Qualquer um (fora o host: 3 por hora por endereço e até 20 salas abertas) | Cria uma sala `{name, password?, nickname?}` com um código novo; quem cria é o dono e já entra nela (o host não é dono). O apelido é obrigatório para quem ainda não está em nenhuma sala. As outras salas continuam abertas |
 | `DELETE /api/rooms/{code}` | Dono da sala ou host | Remove a sala (remoção lógica): some da lista, e as telas dela recebem o código 4404 |
 | `POST /api/rooms/{code}/tv` | Quem sabe a senha da sala, ou o dono da sala; numa sala sem senha, só o dono (o host e o PIN da TV já são a TV de todas) | Troca a senha por um cookie de TV daquela sala. Senhas erradas contam no limite dos PINs |
 | `POST /api/rooms/{code}/player/{ação}` | Host ou dono da sala; a TV, só play, pause e skip | play, pause, skip, ou `guide` e `delay` com `{"value": ...}` (voz guia de 0 a 100% e atraso da TV em ms) |
