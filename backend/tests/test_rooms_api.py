@@ -80,8 +80,8 @@ def test_a_visitor_in_no_room_makes_one_with_a_nickname_and_owns_it(app, strange
     assert TestClient(app).get(f"/api/rooms/{code}").json()["mine"] is False  # another browser, no cookie
 
 
-def test_an_address_makes_three_rooms_an_hour_and_the_host_is_not_counted(host, stranger):
-    for n in range(3):
+def test_an_address_makes_ten_rooms_an_hour_and_the_host_is_not_counted(host, stranger):
+    for n in range(10):
         assert stranger().post("/api/rooms", json={"name": f"Sala {n}", "nickname": "Ana"}).status_code == 201
     over = stranger().post("/api/rooms", json={"name": "Mais uma", "nickname": "Ana"})
     assert over.status_code == 429 and "Muitas salas" in over.json()["detail"]

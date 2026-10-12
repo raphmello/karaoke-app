@@ -82,7 +82,7 @@ class CreationLimiter:
     """At most `limit` rooms per address in `window_s`: with the app on the internet, anyone may create rooms, and
     each one can bring downloads and GPU work (docs/ARCHITECTURE.md, "Salas"). In memory, like the login limiter."""
 
-    def __init__(self, limit: int = 3, window_s: float = 3600, clock=time.monotonic):
+    def __init__(self, limit: int = 10, window_s: float = 3600, clock=time.monotonic):
         self.limit, self.window_s, self.clock = limit, window_s, clock
         self._made: dict[str, list[float]] = {}
         self._lock = threading.Lock()

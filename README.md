@@ -62,7 +62,7 @@ Com o túnel, o app fica em `https://karaoke.<seu-domínio>` sem abrir portas no
 docker compose --profile remote up -d
 ```
 
-Use um PIN de host forte: 5 tentativas erradas do mesmo endereço bloqueiam o login dele por 10 minutos (vale também para as senhas das salas). Uma sala sem senha fica aberta a quem tiver o endereço; com o túnel, crie as salas com senha. Como qualquer um com o endereço cria salas, cada endereço cria no máximo 3 por hora, e com 20 salas abertas só o admin cria outra; o admin exclui as que não reconhecer. Áudios e letras (`/media`) só abrem para o host e para convidados de uma sala aberta.
+Use um PIN de host forte: 5 tentativas erradas do mesmo endereço bloqueiam o login dele por 10 minutos (vale também para as senhas das salas). Uma sala sem senha fica aberta a quem tiver o endereço; com o túnel, crie as salas com senha. Como qualquer um com o endereço cria salas, cada endereço cria no máximo 10 por hora, e com 20 salas abertas só o admin cria outra; o admin exclui as que não reconhecer. Áudios e letras (`/media`) só abrem para o host e para convidados de uma sala aberta.
 
 Para o PC ficar sempre pronto: no Windows, desligue a suspensão no plano de energia e deixe o Docker Desktop iniciar com o Windows; os containers voltam sozinhos (`restart: unless-stopped`).
 
