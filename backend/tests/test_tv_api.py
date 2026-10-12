@@ -1,10 +1,7 @@
-"""The TV's own PIN (docs/ARCHITECTURE.md, "Como alguém entra"): it plays the queue and adds songs, and nothing of
-/host."""
+"""A room's TV (docs/ARCHITECTURE.md, "Como alguém entra"): opened by the room's owner or the admin, it plays the
+queue and adds songs, and nothing of /host."""
 from fastapi.testclient import TestClient
-from helpers import PIN, TV_PIN, Caller, cookie_of
-
-from karaoke.api.app import create_app
-from karaoke.core.config import Settings
+from helpers import PIN, Caller, cookie_of
 
 VIDEO = "dQw4w9WgXcQ"
 
@@ -22,29 +19,15 @@ def receive(ws, kind):
             return message
 
 
-def test_the_tv_pin_gives_the_tvs_cookie_and_the_hosts_pin_the_hosts(client):
-    tv = client.post("/api/tv/login", json={"pin": TV_PIN})
-    assert tv.status_code == 204 and "karaoke_tv=" in tv.headers["set-cookie"]
-    host = client.post("/api/tv/login", json={"pin": PIN})
-    assert host.status_code == 204 and "karaoke_host=" in host.headers["set-cookie"]
-    assert client.post("/api/tv/login", json={"pin": "0000"}).status_code == 401
+def test_there_is_no_tv_pin_any_more(client):
+    # Only the room's owner and the admin open a room's TV (docs/ARCHITECTURE.md, "Como alguém entra")
+    assert client.post("/api/tv/login", json={"pin": "8765"}).status_code in (404, 405)
 
 
-def test_the_tv_pin_does_not_open_the_hosts_login(client):
-    assert client.post("/api/host/login", json={"pin": TV_PIN}).status_code == 401
-
-
-def test_wrong_pins_on_both_screens_count_together(client):
-    for path in ["/api/tv/login", "/api/host/login"] * 2 + ["/api/tv/login"]:
-        assert client.post(path, json={"pin": "0000"}).status_code == 401
-    assert client.post("/api/tv/login", json={"pin": TV_PIN}).status_code == 429
-
-
-def test_without_a_tv_pin_only_the_hosts_pin_opens_the_tv(tmp_path):
-    app = create_app(Settings(data_dir=tmp_path, host_pin=PIN), search=lambda q: [])
-    with TestClient(app) as client:
-        assert client.post("/api/tv/login", json={"pin": ""}).status_code == 401
-        assert client.post("/api/tv/login", json={"pin": PIN}).status_code == 204
+def test_an_old_tv_cookie_for_every_room_opens_nothing(app, client, code):
+    old = Caller(client, f"karaoke_tv={app.state.host_signer.issue_tv('all')}")
+    assert not old.get(f"/api/rooms/{code}").json()["tv"]
+    assert old.post(f"/api/rooms/{code}/player/pause").status_code == 401
 
 
 def test_the_tv_finds_the_room_and_plays_the_queue(tv, phone, code, db):
@@ -67,13 +50,11 @@ def test_the_tv_changes_only_the_key_of_the_song_that_plays(tv, phone, code):
     assert tv.patch(f"/api/rooms/{code}/queue/{waiting}", json={"semitones": 2}).status_code == 403
 
 
-def test_the_phone_that_is_the_tv_can_also_join_and_sing(app, client, phone, code):
-    # An iPhone mirrored to the TV: logged in with TV_PIN, then it reads the QR and joins as a guest
-    login = TestClient(app).post("/api/tv/login", json={"pin": TV_PIN})
-    joined = TestClient(app).post(f"/api/rooms/{code}/join", json={"nickname": "Raphael"},
-                                  headers={"cookie": cookie_of(login)})
+def test_the_phone_that_is_the_tv_can_also_join_and_sing(app, client, tv, phone, code):
+    # An iPhone mirrored to the TV: it is the room's TV, then it reads the QR and joins as a guest
+    joined = TestClient(app).post(f"/api/rooms/{code}/join", json={"nickname": "Raphael"}, headers=tv.headers)
     assert joined.status_code == 200
-    both = Caller(client, f"{cookie_of(login)}; {cookie_of(joined)}")
+    both = Caller(client, f"{tv.headers['cookie']}; {cookie_of(joined)}")
     mine = add(both, code)
     assert both.get(f"/api/rooms/{code}/queue").json()[0]["mine"]
     assert both.patch(f"/api/rooms/{code}/queue/{mine}", json={"semitones": 1}).status_code == 200
@@ -107,15 +88,14 @@ def test_the_tv_still_cannot_touch_a_guests_song(tv, phone, code):
     assert not tv.get(f"/api/rooms/{code}/queue").json()[0]["mine"]
 
 
-def test_leaving_the_admin_drops_the_host_cookie_and_keeps_the_tv(app, client, code):
+def test_leaving_the_admin_drops_the_host_cookie_and_keeps_the_tv(app, client, tv, code):
     # The TV unlocks Acervo and Painel with the host's PIN, then "Sair do admin"
-    tv_login = TestClient(app).post("/api/tv/login", json={"pin": TV_PIN})
     host_login = TestClient(app).post("/api/host/login", json={"pin": PIN})
-    both = Caller(client, f"{cookie_of(tv_login)}; {cookie_of(host_login)}")
+    both = Caller(client, f"{tv.headers['cookie']}; {cookie_of(host_login)}")
     assert both.get("/api/jobs").status_code == 200
     out = both.post("/api/host/logout")
     assert out.status_code == 204 and 'karaoke_host=""' in out.headers["set-cookie"] and "Max-Age=0" in out.headers["set-cookie"]
-    tv_only = Caller(client, cookie_of(tv_login))  # what the browser keeps
+    tv_only = tv  # what the browser keeps
     assert tv_only.get("/api/jobs").status_code == 401
     assert tv_only.get(f"/api/rooms/{code}").json()["tv"]
 

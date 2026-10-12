@@ -1,14 +1,15 @@
 // /m/<code>: the guest's phone. Its one tab, "Sala", has the same two sub-tabs as the TV's menu and the host's
 // screen: "Adicionar Música" (search YouTube or the library and add songs, with the key they start in) and "Fila"
 // (follow the queue, change the key of one's own entries, remove them and answer the transcription question).
-// The room's owner also runs its queue and, above it, the player, and may delete the room. "Abrir como TV" opens the room's player (the owner, or anyone in a room
-// with a password, which they know); "Ver salas" goes back to the list.
+// The room's owner also runs its queue and, above it, the player, may delete the room and opens it as the TV ("Abrir
+// como TV"); "Ver salas" goes back to the list.
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, onSessionLost } from "../api";
 import { AddSong } from "../room/AddSongs";
 import { DeleteRoomButton } from "../room/DeleteRoom";
 import { ExpiresIn } from "../room/Expiry";
+import { OpenTvButton } from "../tv/OpenTv";
 import { PlayerControls } from "../room/PlayerControls";
 import { QueueList } from "../room/QueueList";
 import { type RoomTab, RoomTabsNav } from "../room/RoomTabs";
@@ -43,7 +44,6 @@ export function PhonePage({ code }: { code: string }) {
       </div>
     );
   }
-  const mayBeTv = info.data && (info.data.mine || info.data.tv || info.data.protected);
   return (
     <div className="mx-auto flex min-h-full max-w-xl flex-col">
       {/* Solid, so the list never shows through it while scrolling */}
@@ -67,17 +67,15 @@ export function PhonePage({ code }: { code: string }) {
             Ver salas
           </a>
         </div>
-        {(mayBeTv || info.data?.manage) && (
+        {info.data?.manage && (
           <div className="mt-3 flex flex-wrap items-start gap-2">
-            {mayBeTv && (
-              <a
-                className="flex-1 rounded-lg bg-zinc-800 px-3 py-2 text-center text-sm font-semibold hover:bg-zinc-700"
-                href={`/tv/${code}`}
-              >
-                Abrir como TV
-              </a>
-            )}
-            {info.data?.manage && <DeleteRoomButton code={code} onDeleted={() => location.assign("/")} />}
+            <span className="flex-1 [&>span]:w-full">
+              <OpenTvButton
+                code={code}
+                className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-center text-sm font-semibold hover:bg-zinc-700"
+              />
+            </span>
+            <DeleteRoomButton code={code} onDeleted={() => location.assign("/")} />
           </div>
         )}
         <div className="mt-3 pb-3">

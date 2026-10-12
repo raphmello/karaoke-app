@@ -11,7 +11,7 @@ import time
 
 GUEST_COOKIE = "karaoke_guest"
 HOST_COOKIE = "karaoke_host"
-TV_COOKIE = "karaoke_tv"  # TV_PIN's cookie: plays the queue, nothing of /host
+TV_COOKIE = "karaoke_tv"  # a room's TV, opened by its owner: plays the queue, nothing of /host
 
 _SCRYPT = {"n": 2**14, "r": 8, "p": 1}
 
@@ -34,7 +34,7 @@ def verify_pin(pin: str, stored: str) -> bool:
 
 
 def pin_matches(pin: str, expected: str) -> bool:
-    """The login check against HOST_PIN or TV_PIN. An unset PIN never matches, so nobody logs in by accident."""
+    """The login check against HOST_PIN. An unset PIN never matches, so nobody logs in by accident."""
     return bool(expected) and hmac.compare_digest(pin.encode(), expected.encode())
 
 
@@ -121,12 +121,12 @@ class HostSigner:
         return hmac.compare_digest(signature, self._sign(role, nonce))
 
     def issue_tv(self, scope: str) -> str:
-        """The TV's cookie, for one room (its id, from the room's password) or for all (ALL_ROOMS, from TV_PIN). The
-        scope is in the clear, and signed with the role, so a room's TV cookie never opens another room."""
+        """The TV's cookie, for one room (its id), given to the room's owner by "Abrir como TV". The scope is in the
+        clear, and signed with the role, so a room's TV cookie never opens another room."""
         return f"{scope}~{self.issue(f'tv:{scope}')}"
 
     def tv_scope(self, value: str | None) -> str | None:
-        """The room id (or ALL_ROOMS) a TV cookie is good for; None when it is not a valid TV cookie."""
+        """The room id a TV cookie is good for; None when it is not a valid TV cookie."""
         if not value or "~" not in value:
             return None
         scope, signed = value.split("~", 1)
@@ -135,5 +135,3 @@ class HostSigner:
     def _sign(self, role: str, nonce: str) -> str:
         return hmac.new(self._secret, f"{role}:{nonce}".encode(), hashlib.sha256).hexdigest()
 
-
-ALL_ROOMS = "all"  # the TV cookie's scope from TV_PIN: the TV of every room

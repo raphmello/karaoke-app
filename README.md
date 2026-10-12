@@ -26,9 +26,9 @@ Sobem três serviços: `caddy` (porta 8080, a única exposta, com o frontend com
 
 ## Uma noite de karaokê
 
-1. No `.env`, defina `HOST_PIN`, `TV_PIN` (outro PIN, que só abre o player da TV, de qualquer sala) e `PUBLIC_BASE_URL=http://<IP do PC>:8080` (o endereço que os celulares usam).
+1. No `.env`, defina `HOST_PIN` e `PUBLIC_BASE_URL=http://<IP do PC>:8080` (o endereço que os celulares usam).
 2. Em `http://<IP do PC>:8080/` fica a lista das salas abertas. Qualquer pessoa cria uma em **Criar sala**: um nome, se quiser uma senha (sem senha, a sala é pública) e o apelido, e já entra nela como dono. O admin (**Acessar como admin**, com o PIN do host) também cria salas, sem ser dono de nenhuma.
-3. No aparelho ligado à TV, abra a lista e toque em **Abrir como TV** na sala. A TV pede a senha da sala ou, em **Usar o PIN do admin**, o PIN do host ou o da TV; o dono da sala só toca em **Iniciar**. Numa sala sem senha, só o dono e o admin abrem a TV. A TV mostra o QR Code.
+3. No aparelho ligado à TV, o dono da sala ou o admin abre a lista e toca em **Abrir como TV**: a TV já abre pronta, com o som ligado, e mostra o QR Code. Só eles veem esse botão; a senha da sala serve só para entrar como convidado. Quem abre o endereço `/tv/<código>` direto, ou recarrega a página da TV, toca uma vez em **Toque para começar**, porque o navegador não toca som sem um toque.
 4. Cada convidado lê o QR (ou entra pela lista, com **Entrar na sala**), escolhe um apelido, digita a senha se a sala tiver uma, busca e adiciona músicas, já no tom em que quer começar. Antes de adicionar, **▶ Ouvir** toca uma prévia (do acervo, direto do PC; da busca, repassada do YouTube pela API). A fila toca em ordem, sozinha.
 
 Várias salas podem ficar abertas ao mesmo tempo, cada uma com a sua fila e a sua TV; o acervo é um só. Quem cria uma sala vira o dono dela: o dono muda o tom, remove e reordena qualquer música da sala, controla o player pelo celular e pode **Excluir sala**. O admin exclui qualquer sala. Uma sala expira 24 h depois de criada; a tela mostra quanto falta, e o aviso fica amarelo na última meia hora. Quando a sala é excluída ou expira, a música que estiver tocando vai até o fim e as telas levam de volta à lista (**Ver salas**). Uma senha esquecida não se recupera: o admin exclui a sala, ou ela expira.

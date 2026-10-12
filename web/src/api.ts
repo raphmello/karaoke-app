@@ -135,7 +135,6 @@ export const api = {
   search: (q: string) => request<SearchResult[]>(`/api/search?q=${encodeURIComponent(q)}`),
   song: (videoId: string) => request<Song>(song(videoId)),
   hostLogin: (pin: string) => request<void>("/api/host/login", send("POST", { pin }), true), // a wrong PIN is not a lost session
-  tvLogin: (pin: string) => request<void>("/api/tv/login", send("POST", { pin }), true), // TV_PIN, or the host's
 
   // A refusal on these is an answer to show (a wrong password, not in a room yet), not a lost session
   rooms: () => request<RoomInfo[]>("/api/rooms", undefined, true),
@@ -145,8 +144,7 @@ export const api = {
   removeRoom: (code: string) => request<void>(room(code), send("DELETE"), true),
   join: (code: string, nickname: string, password?: string) =>
     request<Guest>(`${room(code)}/join`, send("POST", { nickname, password: password || undefined }), true),
-  roomTv: (code: string, password?: string) =>
-    request<void>(`${room(code)}/tv`, send("POST", { password: password || undefined }), true),
+  roomTv: (code: string) => request<void>(`${room(code)}/tv`, send("POST"), true), // its owner, or the host
   queue: (code: string) => request<QueueEntry[]>(`${room(code)}/queue`),
   add: (code: string, body: { video_id: string; singer_name?: string; semitones: number }) =>
     request<QueueEntry>(`${room(code)}/queue`, send("POST", body)),

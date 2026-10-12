@@ -13,12 +13,13 @@ import { PlayerControls } from "../room/PlayerControls";
 import { QueueList } from "../room/QueueList";
 import { type RoomTab, RoomTabs } from "../room/RoomTabs";
 import { useRoom } from "../room/useRoom";
+import { OpenTvButton } from "../tv/OpenTv";
 import { LibraryAdmin } from "./LibraryAdmin";
 import { Panel } from "./Panel";
 
 export function HostPage() {
   const queryClient = useQueryClient();
-  // Only the host's cookie opens this screen: the TV's (TV_PIN) reads the rooms too, so that is not the check
+  // Only the host's cookie opens this screen: a room's TV reads the rooms too, so that is not the check
   const host = useQuery({ queryKey: ["host-check"], queryFn: api.hostCheck, ...retryWhileRestarting });
   const hostStatus = host.error instanceof ApiError ? host.error.status : null;
   const [lost, setLost] = useState(false);
@@ -153,9 +154,7 @@ function Room({ room, onGone }: { room: RoomInfo; onGone: () => void }) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <a className="rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700" href={`/tv/${room.code}`}>
-              Abrir como TV
-            </a>
+            <OpenTvButton code={room.code} className="rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700" />
             <DeleteRoomButton code={room.code} onDeleted={onGone} />
           </div>
         </div>

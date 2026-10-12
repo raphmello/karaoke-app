@@ -122,12 +122,8 @@ class RoomInfoOut(RoomOut):
     expires_at: datetime
     mine: bool  # the caller owns it
     manage: bool  # the caller is its owner or the host: the queue's and the player's controls
-    tv: bool  # the caller may be its TV already (host, a TV cookie for it or for every room)
+    tv: bool  # the caller may be its TV already (the host, or a TV cookie for it)
     joined: bool  # the caller is in it already (the host, or a guest of it)
-
-
-class RoomTvIn(BaseModel):
-    password: str | None = Field(default=None, max_length=64)
 
 
 class JoinIn(BaseModel):

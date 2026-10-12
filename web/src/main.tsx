@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import { HostPage } from "./host/HostPage";
+import { usePath } from "./lib/navigate";
 import { JoinPage } from "./phone/JoinPage";
 import { PhonePage } from "./phone/PhonePage";
 import { RoomsPage } from "./rooms/RoomsPage";
@@ -13,7 +14,8 @@ const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false,
 /** / (the open rooms), /tv/<code> (a room's TV), /host, /j/<code> (the QR's link) and /m/<code> (the phone).
  *  Anything else, /tv without a room included, goes to the list of rooms. */
 function Screen() {
-  const [, first, code] = window.location.pathname.replace(/\/+$/, "").split("/");
+  // "Abrir como TV" moves to /tv/<code> without a reload, so the audio its tap started keeps playing
+  const [, first, code] = usePath().replace(/\/+$/, "").split("/");
   if (!first) return <RoomsPage />;
   if (first === "tv" && code) return <TvPage code={code.toUpperCase()} />;
   if (first === "host") return <HostPage />;

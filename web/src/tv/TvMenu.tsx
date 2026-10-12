@@ -60,7 +60,7 @@ export function TvMenuLayout({ room, closed, children }: { room: RoomInfo; close
   const leaveAdmin = async () => {
     setSection("room"); // Gerenciar Acervo and Painel go before the cookie does, so nothing of theirs asks again
     await api.hostLogout().catch(() => undefined);
-    // The TV opened with the host's PIN has no TV cookie: the room then asks for its password or a PIN again
+    // A TV opened by the admin has no TV cookie: the room then asks for the admin's PIN again (or its owner's tap)
     await queryClient.invalidateQueries({ queryKey: ["tv-is-host"] });
     await queryClient.invalidateQueries({ queryKey: ["room", room.code] });
   };

@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.requests import HTTPConnection
 
-from karaoke.core.auth import ALL_ROOMS, GUEST_COOKIE, HOST_COOKIE, TV_COOKIE, HostSigner, token_hash
+from karaoke.core.auth import GUEST_COOKIE, HOST_COOKIE, TV_COOKIE, HostSigner, token_hash
 from karaoke.core.config import Settings
 from karaoke.core.models import Guest, Room
 from karaoke.core.permissions import Actor, tv_token
@@ -44,10 +44,10 @@ def find_actor(request: HTTPConnection, session: Session, room: Room | None = No
     # The TV's cookie and a guest's are read together: the phone that is the TV may also have joined as a guest
     scope = host_signer(request).tv_scope(request.cookies.get(TV_COOKIE))
     if room is not None:
-        tv = scope == ALL_ROOMS or scope == str(room.id)
-    else:
-        tv = scope == ALL_ROOMS or (scope is not None and scope.isdigit() and session.scalar(
-            select(Room.id).where(Room.id == int(scope), *open_rooms())) is not None)
+        tv = scope == str(room.id)
+    else:  # an older TV cookie for every room ("all") no longer opens anything
+        tv = scope is not None and scope.isdigit() and session.scalar(
+            select(Room.id).where(Room.id == int(scope), *open_rooms())) is not None
     guest = find_guest(request, session, room)
     if guest is None and not tv:
         return None

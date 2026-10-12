@@ -25,7 +25,6 @@ from karaoke.api import deps
 from karaoke.api.realtime import Connection, Hub
 from karaoke.api.schemas import (
     RoomInfoOut,
-    RoomTvIn,
     DiskOut,
     EventIn,
     GuestOut,
@@ -47,7 +46,6 @@ from karaoke.api.schemas import (
     TranscriptionIn,
 )
 from karaoke.core.auth import (
-    ALL_ROOMS,
     GUEST_COOKIE,
     HOST_COOKIE,
     TV_COOKIE,
@@ -219,16 +217,6 @@ def limited(request: Request, matches: Callable[[], int | None], wrong: str) -> 
     return found
 
 
-@api.post("/tv/login", status_code=204)
-def tv_login(request: Request, response: Response, body: LoginIn, settings: AppSettings) -> None:
-    """The TV's PIN screen. TV_PIN gives a TV cookie for every room; the host's PIN, typed there, gives the host's
-    cookie, since the host may do everything."""
-    if check_pin(request, body.pin, settings.tv_pin, settings.host_pin) == 0:
-        deps.set_cookie(request, response, TV_COOKIE, deps.host_signer(request).issue_tv(ALL_ROOMS), HOST_COOKIE_AGE)
-    else:
-        deps.set_cookie(request, response, HOST_COOKIE, deps.host_signer(request).issue(), HOST_COOKIE_AGE)
-
-
 def as_utc(when: datetime) -> datetime:
     """SQLite hands datetimes back without their zone; they are all UTC, and the screens must know it."""
     return when if when.tzinfo else when.replace(tzinfo=UTC)
@@ -369,19 +357,16 @@ def join(request: Request, response: Response, db: Sessions, code: str, body: Jo
 
 
 @api.post("/rooms/{code}/tv", status_code=204)
-def room_tv(request: Request, response: Response, db: Sessions, code: str, body: RoomTvIn) -> None:
-    """The room's TV: its password gives a TV cookie for this room, and its owner needs no password. A room without
-    a password has none to check, so only its owner (and the admin) may be its TV. The host, or a TV cookie for
-    every room, already is the TV here."""
+def room_tv(request: Request, response: Response, db: Sessions, code: str) -> None:
+    """"Abrir como TV": only the room's owner and the admin open its TV; the room's password is for joining only.
+    The owner gets a TV cookie for this room; the host already is the TV of every room."""
     with transaction(db) as session:
         room = deps.open_room(session, code)
         actor = deps.find_actor(request, session, room)
         if actor and (actor.is_host or actor.is_tv):
             return
         if not (actor and actor.room_owner):
-            if room.password_hash is None:
-                raise HTTPException(403, "Só o dono da sala ou o admin abrem a TV de uma sala sem senha.")
-            check_room_password(request, room, body.password)
+            raise HTTPException(403, "Só o dono da sala ou o admin abrem a TV desta sala.")
     deps.set_cookie(request, response, TV_COOKIE, deps.host_signer(request).issue_tv(str(room.id)), HOST_COOKIE_AGE)
 
 

@@ -276,7 +276,7 @@ Várias salas ficam abertas ao mesmo tempo, cada uma com a sua fila, e o acervo 
 
 1. **A lista de salas** fica em `/` (`GET /api/rooms`): as salas abertas, com nome, quem criou, 🔒 quando têm senha e quanto falta para expirar. Dela se entra numa sala, se abre a TV dela, se cria uma sala nova e se remove a sua.
 2. **Criar sala** (`POST /api/rooms`): qualquer pessoa que abre o app, pela lista, ou o host, também pelo `/host`, com um nome e, se quiser, uma senha. Sem senha, a sala é pública. Quem cria é o dono da sala e já entra nela como convidado; quem ainda não está em nenhuma sala informa também um apelido. O host não é dono de nenhuma, porque já pode tudo. Contra abuso, quem não é o host cria no máximo 3 salas por hora por endereço, e com 20 salas abertas ninguém além do host cria outra; passado o limite, a API recusa com uma mensagem clara (429). A sala expira 24 h depois de criada e pode ser removida antes pelo dono ou pelo host (`DELETE /api/rooms/{code}`). Removida ou expirada, ela some da lista, o QR dela para de funcionar e as telas dela recebem o código 4404.
-3. **A TV** abre `/tv/<código da sala>`, pela lista ou por um link. Abrem a TV de uma sala: a senha da sala (`POST /api/rooms/{code}/tv`), o dono da sala, sem digitar a senha, o PIN da TV (`TV_PIN`, `POST /api/tv/login`) ou o PIN do host. Numa sala sem senha, só o dono e o admin (PIN do host ou da TV) abrem a TV; os convidados só entram na sala. Na lista, o botão "Abrir como TV" só aparece para quem pode usá-lo, e "Entrar na sala" é o caminho de quem vai escolher músicas. O cookie de TV diz para qual sala ele vale: o da senha, só para aquela sala; o do PIN da TV, para todas. A TV toca a fila e adiciona músicas: tocar, pausar, pular, mudar o tom da música que está tocando e, pelo menu lateral, buscar e adicionar, e remover ou mudar o tom das músicas que ela adicionou. O que é só do host continua pedindo o PIN do host: no menu da TV, as abas Gerenciar Acervo e Painel pedem o PIN ali mesmo, e "Sair do admin" (`POST /api/host/logout`) apaga o cookie de host e deixa o da TV. A tela de entrada da TV tem também o link "Acessar como admin", para o `/host`. A TV mostra o QR com `<origem>/j/<código da sala>`. A origem é o `PUBLIC_BASE_URL`, quando definido (domínio do túnel ou IP da rede local), seja qual for o endereço pelo qual a TV foi aberta: assim o QR serve tanto para quem está em casa quanto para quem está fora. Sem ele, vale a URL da TV.
+3. **A TV** abre `/tv/<código da sala>`. Só o dono da sala e o admin (PIN do host) abrem a TV de uma sala; a senha da sala serve só para entrar como convidado. "Abrir como TV" só aparece para eles, na lista, no celular do dono e no `/host`, e "Entrar na sala" é o caminho de quem vai escolher músicas. O toque em "Abrir como TV" é o que o navegador exige para tocar som: a TV abre na mesma página, sem recarregar, já pronta para tocar. O dono recebe um cookie de TV daquela sala (`POST /api/rooms/{code}/tv`); o host já é a TV de todas. Quem abre `/tv/<código>` direto, sem ser o dono nem o admin, vê a tela de entrada, que pede o PIN do host. A TV toca a fila e adiciona músicas: tocar, pausar, pular, mudar o tom da música que está tocando e, pelo menu lateral, buscar e adicionar, e remover ou mudar o tom das músicas que ela adicionou. O que é só do host continua pedindo o PIN do host: no menu da TV, as abas Gerenciar Acervo e Painel pedem o PIN ali mesmo, e "Sair do admin" (`POST /api/host/logout`) apaga o cookie de host e deixa o da TV. A tela de entrada da TV tem também o link "Acessar como admin", para o `/host`. A TV mostra o QR com `<origem>/j/<código da sala>`. A origem é o `PUBLIC_BASE_URL`, quando definido (domínio do túnel ou IP da rede local), seja qual for o endereço pelo qual a TV foi aberta: assim o QR serve tanto para quem está em casa quanto para quem está fora. Sem ele, vale a URL da TV.
 4. **O celular** abre `/j/<código>`, pelo QR ou pela lista, e escolhe como entrar. **Convidado:** informa um apelido e, se a sala tiver senha, a senha (`POST /api/rooms/{code}/join`). Senhas erradas contam no mesmo limite de tentativas dos PINs. **Admin:** digita o PIN do host (`POST /api/host/login`) e vai para a tela do host. As telas de PIN não dizem onde o PIN fica guardado.
 5. O servidor gera um token aleatório de 32 bytes, guarda só o hash em `guests` e devolve o token num cookie `HttpOnly` e `SameSite=Lax` (mais `Secure` quando via HTTPS). O mesmo token vale para todas as salas em que o celular entra: cada sala ganha um convidado com ele, e assim quem criou uma sala continua dono dela depois de entrar em outra.
 6. Toda ação do celular leva o cookie. O servidor descobre o convidado daquela sala por ele e checa a permissão. IDs de dono enviados pelo cliente nunca são confiados.
@@ -306,7 +306,7 @@ A regra mora numa única função `can(ator, ação, entrada)`, chamada por toda
 
 - Convidado que limpa o navegador vira um convidado novo e perde a posse das entradas antigas; o host remove por ele.
 - Cada sala tem o seu código, e o QR de uma sala removida ou expirada para de funcionar.
-- Sala pública: qualquer um com o endereço entra nela, mas só o dono e o admin abrem a TV dela. Para outra pessoa ser a TV, a sala é criada com senha.
+- Sala pública: qualquer um com o endereço entra nela. Com ou sem senha, só o dono e o admin abrem a TV dela.
 - Senha esquecida: não há como recuperar; o host remove a sala, ou ela expira.
 - Criação aberta pela internet: qualquer um com o endereço cria salas e adiciona músicas, que baixam e usam a GPU do PC. Os limites de criação (3 por hora por endereço, 20 salas abertas) seguram o abuso, e o host exclui o que não reconhecer.
 
@@ -320,12 +320,12 @@ A TV é dona da reprodução. Ela toca os dois stems com a Web Audio API, desenh
 - A voz passa por um `GainNode`: a "voz guia" vai de 0 a 100%, padrão 0.
 - A próxima música é baixada e decodificada enquanto a atual toca, então a troca é imediata.
 - Memória: um stem estéreo de 4 minutos decodificado ocupa cerca de 92 MB; com dois stems e a próxima música, perto de 370 MB.
-- O navegador exige um clique antes de tocar áudio. A TV mostra um botão "Iniciar" uma vez por sessão.
+- O navegador exige um toque antes de tocar áudio. O toque em "Abrir como TV" já serve: a TV abre na mesma página, sem recarregar. Só quem abre `/tv/<código>` direto ou recarrega a página vê um botão "Toque para começar".
 
 **Menu lateral**
 
 - Um botão "☰ Menu" na borda direita da TV, recolhido por padrão. Aberto, o menu é uma coluna à direita, ao lado da TV e nunca por cima: a TV encolhe para o espaço que sobra, e a letra, o QR e os controles continuam visíveis, para o menu poder ficar aberto durante a música. No celular, onde a coluna não cabe, o menu abre por cima da tela inteira.
-- Abas: **Sala**, com as sub-abas **Fila** e **Adicionar Música**, para quem entrou com o PIN da TV; **Gerenciar Acervo** e **Painel** pedem o PIN do host na própria aba. Com o PIN da TV, a Fila mostra a fila e o andamento e deixa remover e mudar o tom das músicas que a TV adicionou; com o do host, ou para o dono da sala, faz o que o `/host` faz com a fila (reordenar, remover, tentar de novo).
+- Abas: **Sala**, com as sub-abas **Fila** e **Adicionar Música**; **Gerenciar Acervo** e **Painel** pedem o PIN do host na própria aba. Como só o dono da sala e o host abrem a TV, a Fila faz o que o `/host` faz com a fila (reordenar, remover, tentar de novo).
 - As mesmas abas e sub-abas, com os mesmos nomes, estão no `/host` (Sala, Gerenciar Acervo e Painel) e no celular do convidado (só a Sala), para os três menus serem coerentes.
 - Desbloqueado o host, aparece "Sair do admin", que volta a bloquear Gerenciar Acervo e Painel. Se a própria TV entrou com o PIN do host, sair do admin pede o PIN de novo.
 - Fecha pelo "✕ Fechar" ou pelo Esc; o que se digita no menu não chega aos atalhos da TV (espaço e setas).
@@ -372,10 +372,9 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `GET /api/library?q=` | Convidado | Acervo de músicas prontas; removidas ficam de fora. Com `removed=true` (só o host), lista as removidas, para desfazer a remoção |
 | `POST /api/host/login` | Qualquer um | Troca o PIN do host por um cookie de host |
 | `POST /api/host/logout` | Qualquer um | Apaga o cookie de host ("Sair do admin" no menu da TV); o cookie de TV e o de convidado ficam |
-| `POST /api/tv/login` | Qualquer um | Troca o PIN da TV (`TV_PIN`) por um cookie de TV que vale para todas as salas; o PIN do host, digitado na tela da TV, vale um cookie de host. Divide com o login do host o limite de tentativas erradas por endereço |
 | `POST /api/rooms` | Qualquer um (fora o host: 3 por hora por endereço e até 20 salas abertas) | Cria uma sala `{name, password?, nickname?}` com um código novo; quem cria é o dono e já entra nela (o host não é dono). O apelido é obrigatório para quem ainda não está em nenhuma sala. As outras salas continuam abertas |
 | `DELETE /api/rooms/{code}` | Dono da sala ou host | Remove a sala (remoção lógica): some da lista, e as telas dela recebem o código 4404 |
-| `POST /api/rooms/{code}/tv` | Quem sabe a senha da sala, ou o dono da sala; numa sala sem senha, só o dono (o host e o PIN da TV já são a TV de todas) | Troca a senha por um cookie de TV daquela sala. Senhas erradas contam no limite dos PINs |
+| `POST /api/rooms/{code}/tv` | Dono da sala (o host já é a TV de todas) | Dá ao navegador do dono um cookie de TV daquela sala, sem senha |
 | `POST /api/rooms/{code}/player/{ação}` | Host ou dono da sala; a TV, só play, pause e skip | play, pause, skip, ou `guide` e `delay` com `{"value": ...}` (voz guia de 0 a 100% e atraso da TV em ms) |
 | `PUT /api/songs/{video_id}/lyrics` | Host | Troca a letra e realinha |
 | `POST /api/songs/{video_id}/reprocess` | Host | Reprocessa as etapas escolhidas |
@@ -420,7 +419,7 @@ O volume `karaoke-data` é montado na API e no worker com escrita, e no Caddy s�
 
 - No Windows: driver NVIDIA atualizado, Docker Desktop com backend WSL2 (a GPU chega aos containers por ele) e regra no Firewall liberando a porta 8080 na rede privada.
 - Reserve o IP do PC no roteador, para o QR Code não mudar.
-- `.env` com `HOST_PIN`, `TV_PIN` (diferente do `HOST_PIN`), `PUBLIC_BASE_URL=http://<IP do PC>:8080` e os modelos escolhidos.
+- `.env` com `HOST_PIN`, `PUBLIC_BASE_URL=http://<IP do PC>:8080` e os modelos escolhidos.
 - `docker compose up -d` sobe tudo; a TV abre `http://<IP do PC>:8080/tv`.
 - Desenvolvimento: `pnpm dev` fora do Docker, com proxy para a API, que roda com recarga automática.
 - Sem HTTPS na rede local o celular não instala o app como PWA, mas o site funciona normalmente.

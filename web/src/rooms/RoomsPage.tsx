@@ -5,6 +5,7 @@ import { api, type RoomInfo } from "../api";
 import { CreateRoomButton } from "../room/CreateRoom";
 import { DeleteRoomButton } from "../room/DeleteRoom";
 import { ExpiresIn } from "../room/Expiry";
+import { OpenTvButton } from "../tv/OpenTv";
 
 export function RoomsPage() {
   const rooms = useQuery({ queryKey: ["rooms"], queryFn: api.rooms, refetchInterval: 15000 });
@@ -18,7 +19,7 @@ export function RoomsPage() {
           <h1 className="text-2xl font-bold">Salas de karaokê</h1>
           <p className="text-sm text-zinc-400">
             No celular, use <span className="font-semibold text-zinc-200">Entrar na sala</span>. No aparelho ligado à
-            TV, use <span className="font-semibold text-zinc-200">Abrir como TV</span>.
+            TV, o dono da sala ou o admin usa <span className="font-semibold text-zinc-200">Abrir como TV</span>.
           </p>
         </div>
         {/* Anyone makes a room and becomes its owner; the admin makes it as no one's */}
@@ -69,11 +70,9 @@ function RoomCard({ room, isHost }: { room: RoomInfo; isHost: boolean }) {
         <a className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950" href={enter}>
           {isHost ? "Gerenciar" : "Entrar na sala"}
         </a>
-        {/* The TV: the admin, the owner, or who knows the password (a room without one has no password to ask) */}
-        {(isHost || room.tv || room.mine || room.protected) && (
-          <a className="rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700" href={`/tv/${room.code}`}>
-            Abrir como TV
-          </a>
+        {/* The TV: only the room's owner and the admin */}
+        {room.manage && (
+          <OpenTvButton code={room.code} className="rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700" />
         )}
         {room.manage && (
           <span className="ml-auto">
