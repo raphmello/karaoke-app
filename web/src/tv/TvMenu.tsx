@@ -4,14 +4,16 @@
 // fit, so the menu covers the screen and the TV comes back when it closes.
 //
 // Sala (with Fila and Adicionar Música) is the TV's; Gerenciar Acervo and Painel are the host's and ask for the
-// host's PIN right there. "Sair do admin" drops the host's cookie and locks them again.
+// host's PIN right there. "Sair do admin" drops the host's cookie and locks them again. "Ver salas" leaves this room's
+// TV for the list of rooms.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
-import { type ActiveRoom, api } from "../api";
-import { OpenRoomButton } from "../host/HostPage";
+import { api, type RoomInfo } from "../api";
 import { LibraryAdmin } from "../host/LibraryAdmin";
 import { Panel } from "../host/Panel";
 import { AddSong } from "../room/AddSongs";
+import { DeleteRoomButton } from "../room/DeleteRoom";
+import { ExpiresIn } from "../room/Expiry";
 import { QueueList } from "../room/QueueList";
 import { type RoomTab, RoomTabs } from "../room/RoomTabs";
 import { useRoom } from "../room/useRoom";
@@ -26,7 +28,7 @@ const SECTIONS: [Section, string, boolean][] = [
 ];
 
 /** The TV (`children`) and, beside it, its menu. */
-export function TvMenuLayout({ room, children }: { room: ActiveRoom | null; children: ReactNode }) {
+export function TvMenuLayout({ room, closed, children }: { room: RoomInfo; closed: boolean; children: ReactNode }) {
   const phone = useCompact(); // the window's size: outside the TV's box
   const [open, setOpen] = useState(false);
   const [section, setSection] = useState<Section>("room");
@@ -58,9 +60,9 @@ export function TvMenuLayout({ room, children }: { room: ActiveRoom | null; chil
   const leaveAdmin = async () => {
     setSection("room"); // Gerenciar Acervo and Painel go before the cookie does, so nothing of theirs asks again
     await api.hostLogout().catch(() => undefined);
-    // The TV opened with the host's PIN has no TV cookie: the active room then asks for the PIN again
+    // The TV opened with the host's PIN has no TV cookie: the room then asks for its password or a PIN again
     await queryClient.invalidateQueries({ queryKey: ["tv-is-host"] });
-    await queryClient.invalidateQueries({ queryKey: ["active-room"] });
+    await queryClient.invalidateQueries({ queryKey: ["room", room.code] });
   };
 
   const tvHidden = open && phone;
@@ -117,12 +119,18 @@ export function TvMenuLayout({ room, children }: { room: ActiveRoom | null; chil
                 {hostOnly && !isHost ? " 🔒" : ""}
               </button>
             ))}
+            <a
+              href="/"
+              className={`shrink-0 rounded-lg px-3 py-2 text-left text-sm font-semibold text-zinc-300 ring-1 ring-zinc-700 hover:bg-zinc-800 ${
+                phone ? "" : "mt-auto"
+              }`}
+            >
+              Ver salas
+            </a>
             {isHost && (
               <button
                 onClick={() => void leaveAdmin()}
-                className={`shrink-0 rounded-lg px-3 py-2 text-left text-sm font-semibold text-zinc-400 ring-1 ring-zinc-700 hover:bg-zinc-800 ${
-                  phone ? "" : "mt-auto"
-                }`}
+                className="shrink-0 rounded-lg px-3 py-2 text-left text-sm font-semibold text-zinc-400 ring-1 ring-zinc-700 hover:bg-zinc-800"
               >
                 Sair do admin
               </button>
@@ -130,12 +138,14 @@ export function TvMenuLayout({ room, children }: { room: ActiveRoom | null; chil
           </nav>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
             {section === "room" &&
-              (room ? (
+              (closed ? (
+                <p className="rounded-xl bg-zinc-900 p-4 text-zinc-400">
+                  A sala {room.name ?? room.code} foi encerrada. Escolha outra em Ver salas.
+                </p>
+              ) : (
                 // The room's socket says who it is when it opens: entering or leaving the admin opens a new one, or
                 // the queue would keep marking "mine" for whoever this was before
-                <RoomSection key={`${room.code}-${isHost}`} room={room} isHost={isHost} />
-              ) : (
-                <NoRoom isHost={isHost} />
+                <RoomSection key={`${room.code}-${isHost}`} room={room} manage={isHost || room.manage} />
               ))}
             {section === "library" && (isHost ? <LibraryAdmin /> : <AdminUnlock what="o acervo" />)}
             {section === "panel" && (isHost ? <Panel /> : <AdminUnlock what="o painel" />)}
@@ -188,40 +198,29 @@ function AdminUnlock({ what }: { what: string }) {
   );
 }
 
-function NoRoom({ isHost }: { isHost: boolean }) {
-  if (!isHost) {
-    return (
-      <>
-        <p className="rounded-xl bg-zinc-900 p-4 text-zinc-400">Nenhuma sala aberta. Só o admin abre a sala.</p>
-        <AdminUnlock what="a sala" />
-      </>
-    );
-  }
-  return (
-    <section className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-zinc-900 p-4">
-      <p className="text-zinc-400">Nenhuma sala aberta.</p>
-      <OpenRoomButton replacing={false} />
-    </section>
-  );
-}
-
-/** The room, then Fila and Adicionar Música. The TV sees the queue and adds songs; the host also reorders, removes,
- *  tries again and opens a new room. */
-function RoomSection({ room, isHost }: { room: ActiveRoom; isHost: boolean }) {
+/** The room, then Fila and Adicionar Música. The TV sees the queue and adds songs; the host and the room's owner also
+ *  reorder, remove, try again and delete the room. */
+function RoomSection({ room, manage }: { room: RoomInfo; manage: boolean }) {
   const live = useRoom(room.code);
   const [tab, setTab] = useState<RoomTab>("queue");
   return (
     <>
       <section className="flex flex-wrap items-start justify-between gap-3 rounded-xl bg-zinc-900 p-4">
         <div>
-          <p className="text-sm text-zinc-400">{room.name ?? "Sala aberta"}</p>
+          <p className="text-sm text-zinc-400">
+            {room.protected && "🔒 "}
+            {room.name ?? "Sala aberta"}
+          </p>
           <p className="text-2xl font-bold tracking-widest">{room.code}</p>
+          <p className="text-sm text-zinc-400">
+            <ExpiresIn when={room.expires_at} />
+          </p>
           <p className="text-sm text-zinc-400">
             Os convidados entram pelo QR da TV
             {!live.connected && " · reconectando…"}
           </p>
         </div>
-        {isHost && <OpenRoomButton replacing />}
+        {manage && <DeleteRoomButton code={room.code} />}
       </section>
       <RoomTabs
         value={tab}
@@ -229,7 +228,7 @@ function RoomSection({ room, isHost }: { room: ActiveRoom; isHost: boolean }) {
         count={live.entries?.length}
         queue={
           live.entries ? (
-            <QueueList code={room.code} entries={live.entries} progress={live.progress} isHost={isHost} />
+            <QueueList code={room.code} entries={live.entries} progress={live.progress} isHost={manage} />
           ) : (
             <p className="text-zinc-400">Carregando a fila…</p>
           )

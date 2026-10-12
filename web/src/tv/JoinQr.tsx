@@ -3,15 +3,15 @@
 // (docs/ARCHITECTURE.md, "Como alguém entra").
 import QRCode from "qrcode";
 import { useEffect, useState } from "react";
-import type { ActiveRoom } from "../api";
+import type { RoomInfo } from "../api";
 
-export function joinUrl(room: ActiveRoom): { url: string; unreachable: boolean } {
+export function joinUrl(room: RoomInfo): { url: string; unreachable: boolean } {
   const local = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
   const origin = room.public_base_url || location.origin;
   return { url: `${origin}${room.join_path}`, unreachable: local && !room.public_base_url };
 }
 
-export function JoinQr({ room, size, caption }: { room: ActiveRoom; size: number; caption?: string }) {
+export function JoinQr({ room, size, caption }: { room: RoomInfo; size: number; caption?: string }) {
   const { url, unreachable } = joinUrl(room);
   const [image, setImage] = useState<string | null>(null);
   useEffect(() => {

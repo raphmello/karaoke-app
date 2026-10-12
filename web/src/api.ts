@@ -66,7 +66,18 @@ export type Disk = {
 };
 
 export type Room = { code: string; name: string | null; join_path: string };
-export type ActiveRoom = Room & { public_base_url: string };
+/** A room in the list and on its screens (docs/ARCHITECTURE.md, "Salas"), with what this browser may do in it. */
+export type RoomInfo = Room & {
+  public_base_url: string; // the QR's origin; empty when not set
+  owner: string; // the owner's nickname, or "Host"
+  protected: boolean; // it has a password
+  created_at: string;
+  expires_at: string;
+  mine: boolean; // this browser owns it
+  manage: boolean; // its owner or the host: the queue's and the player's controls
+  tv: boolean; // this browser may be its TV already
+  joined: boolean; // this browser is in it already
+};
 export type Guest = { id: string; nickname: string; room_code: string };
 
 export class ApiError extends Error {
@@ -126,10 +137,16 @@ export const api = {
   hostLogin: (pin: string) => request<void>("/api/host/login", send("POST", { pin }), true), // a wrong PIN is not a lost session
   tvLogin: (pin: string) => request<void>("/api/tv/login", send("POST", { pin }), true), // TV_PIN, or the host's
 
-  activeRoom: () => request<ActiveRoom>("/api/rooms/active"),
-  openRoom: (name: string, moveQueue = false) =>
-    request<Room>("/api/rooms", send("POST", { name: name || null, move_queue: moveQueue })),
-  join: (code: string, nickname: string) => request<Guest>(`${room(code)}/join`, send("POST", { nickname })),
+  // A refusal on these is an answer to show (a wrong password, not in a room yet), not a lost session
+  rooms: () => request<RoomInfo[]>("/api/rooms", undefined, true),
+  room: (code: string) => request<RoomInfo>(room(code), undefined, true),
+  createRoom: (body: { name: string; password?: string; nickname?: string }) =>
+    request<Room>("/api/rooms", send("POST", body), true),
+  removeRoom: (code: string) => request<void>(room(code), send("DELETE"), true),
+  join: (code: string, nickname: string, password?: string) =>
+    request<Guest>(`${room(code)}/join`, send("POST", { nickname, password: password || undefined }), true),
+  roomTv: (code: string, password?: string) =>
+    request<void>(`${room(code)}/tv`, send("POST", { password: password || undefined }), true),
   queue: (code: string) => request<QueueEntry[]>(`${room(code)}/queue`),
   add: (code: string, body: { video_id: string; singer_name?: string; semitones: number }) =>
     request<QueueEntry>(`${room(code)}/queue`, send("POST", body)),

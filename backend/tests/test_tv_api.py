@@ -48,7 +48,7 @@ def test_without_a_tv_pin_only_the_hosts_pin_opens_the_tv(tmp_path):
 
 
 def test_the_tv_finds_the_room_and_plays_the_queue(tv, phone, code, db):
-    assert tv.get("/api/rooms/active").json()["code"] == code
+    assert tv.get(f"/api/rooms/{code}").json()["tv"]
     ana = phone(code, "Ana")
     anas = add(ana, code)
     with tv.websocket_connect(f"/ws/rooms/{code}?role=tv") as ws:
@@ -77,7 +77,7 @@ def test_the_phone_that_is_the_tv_can_also_join_and_sing(app, client, phone, cod
     mine = add(both, code)
     assert both.get(f"/api/rooms/{code}/queue").json()[0]["mine"]
     assert both.patch(f"/api/rooms/{code}/queue/{mine}", json={"semitones": 1}).status_code == 200
-    assert both.get("/api/rooms/active").json()["code"] == code  # still the TV
+    assert both.get(f"/api/rooms/{code}").json()["tv"]  # still the TV
     assert both.post(f"/api/rooms/{code}/player/pause").status_code == 204
     anas = add(phone(code, "Ana"), code)
     assert both.delete(f"/api/rooms/{code}/queue/{anas}").status_code == 403  # not someone else's
@@ -117,13 +117,13 @@ def test_leaving_the_admin_drops_the_host_cookie_and_keeps_the_tv(app, client, c
     assert out.status_code == 204 and 'karaoke_host=""' in out.headers["set-cookie"] and "Max-Age=0" in out.headers["set-cookie"]
     tv_only = Caller(client, cookie_of(tv_login))  # what the browser keeps
     assert tv_only.get("/api/jobs").status_code == 401
-    assert tv_only.get("/api/rooms/active").json()["code"] == code
+    assert tv_only.get(f"/api/rooms/{code}").json()["tv"]
 
 
 def test_the_tv_cannot_do_what_belongs_to_the_host_or_the_guests(tv, phone, code):
     ana = phone(code, "Ana")
     anas = add(ana, code)
-    assert tv.post("/api/rooms", json={}).status_code == 401
+    assert tv.post("/api/rooms", json={"name": "Da TV"}).status_code == 401
     assert tv.delete(f"/api/rooms/{code}/queue/{anas}").status_code == 403
     assert tv.patch(f"/api/rooms/{code}/queue/{anas}", json={"position": 1}).status_code == 403
     assert tv.post(f"/api/rooms/{code}/player/guide", json={"value": 50}).status_code == 403

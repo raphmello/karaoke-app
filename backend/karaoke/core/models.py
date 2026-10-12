@@ -1,9 +1,9 @@
 """The six tables of the architecture's data model (docs/ARCHITECTURE.md, "Modelo de dados")."""
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -92,24 +92,35 @@ class Job(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+ROOM_LIFETIME = timedelta(hours=24)
+
+
 class Room(Base):
+    """One of the open rooms (docs/ARCHITECTURE.md, "Salas"): open while is_active and expires_at is ahead."""
+
     __tablename__ = "rooms"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(12), unique=True)
     name: Mapped[str | None] = mapped_column(Text)
-    host_pin_hash: Mapped[str] = mapped_column(Text)
+    host_pin_hash: Mapped[str] = mapped_column(Text, default="")  # from the one-room days; no longer used
+    owner_guest_id: Mapped[str | None] = mapped_column(String(36))  # the guest who made it; None for the host
+    password_hash: Mapped[str | None] = mapped_column(Text)  # scrypt; None: a public room
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: utcnow() + ROOM_LIFETIME)
 
 
 class Guest(Base):
+    """A phone in one room. The same phone has one per room it joined, all with the same token."""
+
     __tablename__ = "guests"
+    __table_args__ = (UniqueConstraint("room_id", "token_hash", name="uq_guests_room_token"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     room_id: Mapped[int] = mapped_column(ForeignKey("rooms.id"), index=True)
     nickname: Mapped[str] = mapped_column(String(40))
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    token_hash: Mapped[str] = mapped_column(String(64), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

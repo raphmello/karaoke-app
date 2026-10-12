@@ -10,6 +10,8 @@ import logging
 import secrets
 import shutil
 import uuid
+from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Annotated
 
 import anyio
@@ -17,11 +19,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response,
 from fastapi.responses import StreamingResponse
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.websockets import WebSocketDisconnected
 
 from karaoke.api import deps
 from karaoke.api.realtime import Connection, Hub
 from karaoke.api.schemas import (
-    ActiveRoomOut,
+    RoomInfoOut,
+    RoomTvIn,
     DiskOut,
     EventIn,
     GuestOut,
@@ -42,13 +46,24 @@ from karaoke.api.schemas import (
     SongOut,
     TranscriptionIn,
 )
-from karaoke.core.auth import GUEST_COOKIE, HOST_COOKIE, TV_COOKIE, hash_pin, new_guest_token, pin_matches
+from karaoke.core.auth import (
+    ALL_ROOMS,
+    GUEST_COOKIE,
+    HOST_COOKIE,
+    TV_COOKIE,
+    hash_pin,
+    new_guest_token,
+    pin_matches,
+    token_hash,
+    verify_pin,
+)
 from karaoke.core.config import Settings
 from karaoke.core.db import transaction
 from karaoke.core.models import (
     AWAITING_DECISION,
     PLAYING,
     READY,
+    ROOM_LIFETIME,
     REMOVED,
     Guest,
     Job,
@@ -56,6 +71,7 @@ from karaoke.core.models import (
     Room,
     Song,
     SongEvent,
+    utcnow,
 )
 from karaoke.core.permissions import Action, Actor, can, tv_token
 from karaoke.core.songs import (
@@ -66,7 +82,7 @@ from karaoke.core.songs import (
     TooLong,
     add_to_queue,
     answer_transcription,
-    close_rooms,
+    close_room,
     move_entry,
     queue_rows,
     remove_entry,
@@ -162,24 +178,12 @@ def original_name(settings: Settings, video_id: str) -> str | None:
 # --- host and rooms ------------------------------------------------------------------------------------------------
 
 def check_pin(request: Request, pin: str, *expected: str) -> int:
-    """Which of the expected PINs this is (its index), counting wrong ones against the caller's address: the host's
-    and the TV's logins share the limit, so neither is a way around it."""
-    limiter = request.app.state.login_limiter
-    address = deps.client_address(request)
-    if wait := limiter.retry_after(address):
-        minutes = max(1, round(wait / 60))
-        raise HTTPException(
-            429,
-            f"Muitas tentativas erradas. Tente de novo em {minutes} minuto{'s' if minutes > 1 else ''}.",
-            headers={"Retry-After": str(wait)},
-        )
-    for index, candidate in enumerate(expected):
-        if pin_matches(pin, candidate):
-            limiter.succeeded(address)
-            return index
-    limiter.failed(address)
-    log.warning("PIN errado vindo de %s", address)
-    raise HTTPException(401, "PIN incorreto.")
+    """Which of the expected PINs this is (its index); a wrong one counts against the caller's address."""
+    return limited(
+        request,
+        lambda: next((i for i, candidate in enumerate(expected) if pin_matches(pin, candidate)), None),
+        "PIN incorreto.",
+    )
 
 
 @api.post("/host/login", status_code=204)
@@ -194,69 +198,169 @@ def host_logout(request: Request, response: Response) -> None:
     deps.clear_cookie(request, response, HOST_COOKIE)
 
 
+def limited(request: Request, matches: Callable[[], int | None], wrong: str) -> int:
+    """Runs a PIN or password check, counting wrong ones against the caller's address. The host's PIN, the TV's and
+    the rooms' passwords share the limit, so none of them is a way around it."""
+    limiter = request.app.state.login_limiter
+    address = deps.client_address(request)
+    if wait := limiter.retry_after(address):
+        minutes = max(1, round(wait / 60))
+        raise HTTPException(
+            429,
+            f"Muitas tentativas erradas. Tente de novo em {minutes} minuto{'s' if minutes > 1 else ''}.",
+            headers={"Retry-After": str(wait)},
+        )
+    found = matches()
+    if found is None:
+        limiter.failed(address)
+        log.warning("%s vindo de %s", wrong, address)
+        raise HTTPException(401, wrong)
+    limiter.succeeded(address)
+    return found
+
+
 @api.post("/tv/login", status_code=204)
 def tv_login(request: Request, response: Response, body: LoginIn, settings: AppSettings) -> None:
-    """The TV's PIN screen. TV_PIN gives the TV's cookie, which only plays the queue; the host's PIN, typed there,
-    gives the host's cookie, since the host may do everything."""
+    """The TV's PIN screen. TV_PIN gives a TV cookie for every room; the host's PIN, typed there, gives the host's
+    cookie, since the host may do everything."""
     if check_pin(request, body.pin, settings.tv_pin, settings.host_pin) == 0:
-        deps.set_cookie(request, response, TV_COOKIE, deps.host_signer(request).issue("tv"), HOST_COOKIE_AGE)
+        deps.set_cookie(request, response, TV_COOKIE, deps.host_signer(request).issue_tv(ALL_ROOMS), HOST_COOKIE_AGE)
     else:
         deps.set_cookie(request, response, HOST_COOKIE, deps.host_signer(request).issue(), HOST_COOKIE_AGE)
 
 
-@api.post("/rooms", status_code=201)
-def open_room(request: Request, db: Sessions, settings: AppSettings, body: RoomIn) -> RoomOut:
-    """Opens tonight's room. One active room at a time in v1: the previous one closes, its QR stops working and its
-    screens are told; with move_queue, its waiting entries come along."""
+def as_utc(when: datetime) -> datetime:
+    """SQLite hands datetimes back without their zone; they are all UTC, and the screens must know it."""
+    return when if when.tzinfo else when.replace(tzinfo=UTC)
+
+
+def room_out(room: Room, session: Session, actor: Actor | None, settings: Settings) -> RoomInfoOut:
+    """A room as the list and its screens show it, with what the caller may do in it."""
+    owner = session.get(Guest, room.owner_guest_id) if room.owner_guest_id else None
+    return RoomInfoOut(
+        code=room.code,
+        name=room.name,
+        join_path=f"/j/{room.code}",
+        public_base_url=settings.public_base_url,
+        owner=owner.nickname if owner else "Host",
+        protected=room.password_hash is not None,
+        created_at=as_utc(room.created_at),
+        expires_at=as_utc(room.expires_at),
+        mine=bool(actor and actor.room_owner),
+        manage=bool(actor and actor.manages),
+        tv=bool(actor and (actor.is_host or actor.is_tv)),
+        joined=bool(actor and (actor.is_host or actor.guest is not None)),
+    )
+
+
+@api.get("/rooms")
+def rooms(request: Request, db: Sessions, settings: AppSettings) -> list[RoomInfoOut]:
+    """The open rooms, newest first. Anyone may see the list; a room with a password asks for it to enter."""
     with transaction(db) as session:
-        deps.require_host(request, session)
+        found = session.scalars(select(Room).where(*deps.open_rooms()).order_by(Room.created_at.desc())).all()
+        return [room_out(room, session, deps.find_actor(request, session, room), settings) for room in found]
+
+
+@api.get("/rooms/{code}")
+def room(request: Request, db: Sessions, settings: AppSettings, code: str) -> RoomInfoOut:
+    """One open room: what its screens show (name, the QR's origin) and what the caller may do in it."""
+    with transaction(db) as session:
+        found = deps.open_room(session, code)
+        return room_out(found, session, deps.find_actor(request, session, found), settings)
+
+
+@api.post("/rooms", status_code=201)
+def create_room(request: Request, db: Sessions, body: RoomIn) -> RoomOut:
+    """A new room, beside the others. The host makes it as no one's; a guest of any open room makes it as its owner,
+    with the same phone token, so it stays the owner after joining other rooms."""
+    with transaction(db) as session:
+        actor = deps.find_actor(request, session)
+        if actor is None or not can(actor, Action.CREATE_ROOM):
+            raise HTTPException(401, "Entre numa sala, ou como admin, para criar uma sala.")
         taken = set(session.scalars(select(Room.code)))
         code = new_room_code()
         while code in taken:
             code = new_room_code()
-        room = Room(code=code, name=body.name, host_pin_hash=hash_pin(settings.host_pin))
+        now = utcnow()
+        room = Room(
+            code=code,
+            name=body.name,
+            password_hash=hash_pin(body.password) if body.password else None,
+            created_at=now,
+            expires_at=now + ROOM_LIFETIME,
+        )
         session.add(room)
         session.flush()
-        closed = close_rooms(session, room, body.move_queue)
-    log.info("sala %s aberta (fila %s)", code, "levada" if body.move_queue else "vazia")
-    notify(hub(request).close_rooms, closed)
-    notify(hub(request).queue_changed, room.id)
+        if not actor.is_host:
+            nickname = body.nickname or actor.guest.nickname
+            owner = Guest(id=str(uuid.uuid4()), room_id=room.id, nickname=nickname,
+                          token_hash=token_hash(deps.phone_token(request)))
+            session.add(owner)
+            session.flush()
+            room.owner_guest_id = owner.id
+    log.info("sala %s criada por %s (%s)", code, "host" if actor.is_host else "convidado",
+             "com senha" if body.password else "pública")
     return RoomOut(code=room.code, name=room.name, join_path=f"/j/{room.code}")
 
 
-@api.get("/rooms/active")
-def active(request: Request, db: Sessions, settings: AppSettings) -> ActiveRoomOut:
-    """The open room, for the TV: where its queue is and what goes in the QR."""
+@api.delete("/rooms/{code}", status_code=204)
+def remove_room(request: Request, db: Sessions, code: str) -> None:
+    """By its owner or the host: it leaves the list, its QR stops working and its screens are told (4404)."""
     with transaction(db) as session:
-        deps.require_tv(request, session)
-        room = session.scalar(select(Room).where(Room.is_active).order_by(Room.id.desc()))
-        if room is None:
-            raise HTTPException(404, "Nenhuma sala aberta. Abra a sala na tela do host.")
-        return ActiveRoomOut(
-            code=room.code, name=room.name, join_path=f"/j/{room.code}", public_base_url=settings.public_base_url
-        )
+        room, actor = deps.room_actor(request, session, code)
+        require(actor, Action.REMOVE_ROOM)
+        close_room(session, room)
+    log.info("sala %s removida", code)
+    notify(hub(request).close_rooms, [room.id])
 
 
 def new_room_code() -> str:
     return "".join(secrets.choice(ROOM_CODE_ALPHABET) for _ in range(6))
 
 
+def check_room_password(request: Request, room: Room, password: str | None) -> None:
+    if room.password_hash is None:
+        return
+    limited(request, lambda: 0 if password and verify_pin(password, room.password_hash) else None, "Senha incorreta.")
+
+
 @api.post("/rooms/{code}/join")
 def join(request: Request, response: Response, db: Sessions, code: str, body: JoinIn) -> GuestOut:
-    """A phone joins with a nickname and gets an anonymous token in a cookie. Joining again keeps the same guest,
-    and with it the ownership of the entries already added."""
+    """A phone joins with a nickname (and the room's password, when it has one). The phone keeps one anonymous
+    token for every room; joining again keeps the same guest, and with it the ownership of the entries added."""
     with transaction(db) as session:
-        room = deps.active_room(session, code)
-        actor = deps.find_actor(request, session)
-        if actor and actor.guest and actor.guest.room_id == room.id:
+        room = deps.open_room(session, code)
+        actor = deps.find_actor(request, session, room)
+        if actor and actor.guest:
             actor.guest.nickname = body.nickname
             guest = actor.guest
         else:
-            token, token_hash = new_guest_token()
-            guest = Guest(id=str(uuid.uuid4()), room_id=room.id, nickname=body.nickname, token_hash=token_hash)
+            if not (actor and actor.is_host):
+                check_room_password(request, room, body.password)
+            token = deps.phone_token(request)
+            if token is None:
+                token, _ = new_guest_token()
+                deps.set_cookie(request, response, GUEST_COOKIE, token, GUEST_COOKIE_AGE)
+            guest = Guest(id=str(uuid.uuid4()), room_id=room.id, nickname=body.nickname, token_hash=token_hash(token))
             session.add(guest)
-            deps.set_cookie(request, response, GUEST_COOKIE, token, GUEST_COOKIE_AGE)
     return GuestOut(id=guest.id, nickname=guest.nickname, room_code=room.code)
+
+
+@api.post("/rooms/{code}/tv", status_code=204)
+def room_tv(request: Request, response: Response, db: Sessions, code: str, body: RoomTvIn) -> None:
+    """The room's TV: its password gives a TV cookie for this room, and its owner needs no password. A room without
+    a password has none to check, so only its owner (and the admin) may be its TV. The host, or a TV cookie for
+    every room, already is the TV here."""
+    with transaction(db) as session:
+        room = deps.open_room(session, code)
+        actor = deps.find_actor(request, session, room)
+        if actor and (actor.is_host or actor.is_tv):
+            return
+        if not (actor and actor.room_owner):
+            if room.password_hash is None:
+                raise HTTPException(403, "Só o dono da sala ou o admin abrem a TV de uma sala sem senha.")
+            check_room_password(request, room, body.password)
+    deps.set_cookie(request, response, TV_COOKIE, deps.host_signer(request).issue_tv(str(room.id)), HOST_COOKIE_AGE)
 
 
 # --- queue ---------------------------------------------------------------------------------------------------------
@@ -440,8 +544,8 @@ async def room_socket(websocket: WebSocket, code: str, role: str | None = None) 
             message = await websocket.receive_json()
             if isinstance(message, dict) and message.get("type") == "player.state" and connection.tv:
                 await rooms.tv_state(room.id, message)
-    except (WebSocketDisconnect, ValueError):
-        pass
+    except (WebSocketDisconnect, WebSocketDisconnected, ValueError):
+        pass  # the phone left, or the server closed the socket (the room was removed or expired)
     finally:
         rooms.leave(connection)
 

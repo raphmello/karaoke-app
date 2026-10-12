@@ -83,8 +83,22 @@ class LoginIn(BaseModel):
 
 
 class RoomIn(BaseModel):
-    name: str | None = Field(default=None, max_length=80)
-    move_queue: bool = False  # the entries still waiting go to the new room (only the host removes them there)
+    name: str = Field(min_length=1, max_length=80)
+    password: str | None = Field(default=None, max_length=64)  # none or empty: a public room
+    nickname: str | None = Field(default=None, max_length=40)  # the owner's, when a guest makes it
+
+    @field_validator("name")
+    @classmethod
+    def strip_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("a sala precisa de um nome")
+        return value
+
+    @field_validator("password")
+    @classmethod
+    def no_blank_password(cls, value: str | None) -> str | None:
+        return value or None  # an empty password makes a public room, not a room whose password is ""
 
 
 class RoomOut(BaseModel):
@@ -93,8 +107,27 @@ class RoomOut(BaseModel):
     join_path: str  # what the QR code points to, after the origin
 
 
+class RoomInfoOut(RoomOut):
+    """A room in the list and on its screens, with what the caller may do in it."""
+
+    public_base_url: str  # the QR's origin when the TV runs on localhost; empty when not set
+    owner: str  # the owner's nickname, or "Host"
+    protected: bool  # it has a password
+    created_at: datetime
+    expires_at: datetime
+    mine: bool  # the caller owns it
+    manage: bool  # the caller is its owner or the host: the queue's and the player's controls
+    tv: bool  # the caller may be its TV already (host, a TV cookie for it or for every room)
+    joined: bool  # the caller is in it already (the host, or a guest of it)
+
+
+class RoomTvIn(BaseModel):
+    password: str | None = Field(default=None, max_length=64)
+
+
 class JoinIn(BaseModel):
     nickname: str = Field(min_length=1, max_length=40)
+    password: str | None = Field(default=None, max_length=64)  # when the room has one
 
     @field_validator("nickname")
     @classmethod
@@ -155,10 +188,6 @@ class QueueEntryPatch(BaseModel):
 
 class TranscriptionIn(BaseModel):
     accept: bool
-
-
-class ActiveRoomOut(RoomOut):
-    public_base_url: str  # the QR's origin when the TV runs on localhost; empty when not set
 
 
 class EventIn(BaseModel):

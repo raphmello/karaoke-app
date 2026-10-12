@@ -16,9 +16,10 @@ Na fase 1 tudo roda na rede local. Na fase 2 o mesmo PC fica ligado e é exposto
 4. Mudar o tom em tempo real, de meio em meio tom, durante a música, para se adequar ao cantor. O instrumental é processado uma vez e guardado só no tom original.
 5. Obter a letra e sincronizá-la automaticamente, com destaque palavra por palavra.
 6. Adicionar músicas à fila. A mesma música pode entrar mais de uma vez.
-7. Entrar pelo QR Code para adicionar e remover músicas. Cada convidado só remove o que ele mesmo adicionou.
+7. Entrar pelo QR Code ou pela lista de salas para adicionar e remover músicas. Cada convidado só remove o que ele mesmo adicionou; o dono da sala mexe em qualquer música dela.
 8. A identidade de uma música é o ID do vídeo no YouTube. Vídeo já processado nunca é reprocessado: áudio e letra vêm do armazenamento local.
 9. Quando a letra não é encontrada, o app avisa quem adicionou a música e pergunta se ela deve ser transcrita. Se a resposta for não, nada é processado e a música é marcada como removida, sem apagar o registro, para manter o histórico.
+10. Várias salas ao mesmo tempo, cada uma com a sua fila; o acervo é um só, compartilhado. O host e os convidados criam salas, com senha opcional (sem senha, a sala é pública). Uma sala expira 24 h depois de criada e pode ser removida antes pelo dono ou pelo host.
 
 **Requisitos não funcionais**
 
@@ -48,6 +49,7 @@ As escolhas priorizam um único PC com GPU, sem custo recorrente e sem reprocess
 | 11 | Acesso remoto | Cloudflare Tunnel nomeado, com domínio próprio na Cloudflare; Tailscale só para administrar o PC | Convidados não instalam nada; downloads continuam saindo do IP de casa |
 | 12 | Letra ausente | Perguntar ao dono antes de baixar qualquer coisa | Nada pesado roda para uma música que ninguém quer transcrever |
 | 13 | Remoção de músicas | Sempre lógica: `status = removed`, arquivos mantidos e eventos em `song_events` | Nada some; a remoção pode ser desfeita sem reprocessar, e fica o histórico de quem recusou ou removeu, e quando |
+| 14 | Salas | Várias ao mesmo tempo, cada uma com a sua fila e o acervo único; criadas pelo host ou por convidados, com senha opcional, e expiram 24 h depois de criadas | Grupos diferentes usam o mesmo PC sem misturar filas, e o processamento de cada música serve a todos; a senha impede estranhos numa sala exposta na internet |
 
 ## Stack tecnológica
 
@@ -213,9 +215,11 @@ Seis tabelas no SQLite. `songs` guarda cada vídeo uma única vez e nunca é apa
 | `songs` | `video_id` (11 caracteres) | `title`, `artist`, `track`, `channel`, `duration_s`, `thumbnail_url`, `status`, `stage`, `original_key`, `language`, `lyrics_source`, `alignment_confidence`, `pipeline_version`, `error`, `created_at`, `ready_at`, `removed_at`, `removed_reason` | Uma linha por vídeo, nunca apagada. `status`: pending, awaiting_decision, processing, ready, failed ou removed. `lyrics_source`: lrclib, syncedlyrics, transcrita, manual ou nenhuma |
 | `song_events` | `id` | `video_id`, `kind`, `guest_id` (ou host), `details`, `created_at` | Histórico só de inclusão: criada, letra não encontrada, transcrição aceita ou recusada, pronta, removida, reativada |
 | `jobs` | `id` | `kind` (process), `video_id`, `options` (ex.: transcrever), `status`, `stage`, `progress`, `attempts`, `error`, `created_at`, `started_at`, `finished_at` | Índice único parcial impede dois jobs iguais ativos |
-| `rooms` | `id` | `code` (vai no QR), `name`, `host_pin_hash`, `is_active`, `created_at` | Uma sala ativa por vez na v1; o modelo já aceita várias |
-| `guests` | `id` (UUID) | `room_id`, `nickname`, `token_hash`, `created_at`, `last_seen_at` | O token fica no cookie do celular; o banco guarda só o hash |
+| `rooms` | `id` | `code` (vai no QR), `name`, `owner_guest_id` (vazio quando o host criou), `password_hash` (scrypt; vazio quando a sala é pública), `is_active`, `created_at`, `expires_at` | Várias salas ao mesmo tempo. Uma sala está aberta enquanto `is_active` e `expires_at` no futuro (24 h depois da criação); removida ou expirada, `is_active` vira falso e ela some da lista. `host_pin_hash`, do tempo de uma sala só, não é mais usado |
+| `guests` | `id` (UUID) | `room_id`, `nickname`, `token_hash`, `created_at`, `last_seen_at` | O token fica no cookie do celular; o banco guarda só o hash. O mesmo celular é um convidado em cada sala em que entra, com o mesmo token: `token_hash` é único por sala |
 | `queue_entries` | `id` | `room_id`, `video_id`, `guest_id` (dono), `singer_name`, `semitones`, `position`, `status`, `removed_reason`, `created_at`, `started_at`, `ended_at` | `semitones`: tom atual em relação ao original, de −6 a +6. `status`: queued, awaiting_decision, playing, done, skipped ou removed. `removed_reason`: dono, host ou transcrição recusada. Remoção é lógica |
+
+A migração para várias salas (`0002`) transforma a sala aberta naquela hora numa sala do host, sem senha, que expira 24 h depois da migração.
 
 O acervo é simplesmente `songs` com `status = ready`. A busca usa esse acervo para marcar os resultados que já tocam na hora. Músicas removidas ficam fora do acervo, mas continuam no banco.
 
@@ -266,39 +270,44 @@ Formato de `aligned.json` (tempos em segundos):
 
 ## Salas, QR Code, convidados e permissões
 
-Convidados entram pelo QR Code sem criar conta. O servidor dá a cada celular um token anônimo, e cada entrada da fila guarda quem a criou. Só o dono e o host podem removê-la.
+Várias salas ficam abertas ao mesmo tempo, cada uma com a sua fila, e o acervo é um só. Convidados entram sem criar conta. O servidor dá a cada celular um token anônimo, e cada entrada da fila guarda quem a criou. O dono da entrada, o dono da sala e o host podem removê-la.
 
 **Como alguém entra**
 
-1. O host abre `/host`, entra com o PIN definido no `.env` e abre a sala da noite.
-2. A TV abre `/tv`, entra com o PIN da TV (`TV_PIN`, `POST /api/tv/login`) na primeira vez e fica com um cookie de TV, que toca a fila e adiciona músicas: tocar, pausar, pular, mudar o tom da música que está tocando e, pelo menu lateral da TV, buscar e adicionar, e remover ou mudar o tom das músicas que ela adicionou. O PIN do host também abre a TV, porque o host pode tudo. O PIN da TV não abre o que é só do host: no menu da TV, as abas Gerenciar Acervo e Painel pedem o PIN do host ali mesmo, e "Sair do admin" (`POST /api/host/logout`) apaga o cookie de host e deixa o da TV. A tela de PIN da TV tem também o link "Acessar como admin", para o `/host`. A TV mostra o QR com `<origem>/j/<código da sala>`. A origem é o `PUBLIC_BASE_URL`, quando definido (domínio do túnel ou IP da rede local), seja qual for o endereço pelo qual a TV foi aberta: assim o QR serve tanto para quem está em casa quanto para quem está fora. Sem ele, vale a URL da TV.
-3. O celular abre o link e escolhe como entrar. **Convidado:** informa um apelido e chama `POST /api/rooms/{code}/join`. **Admin:** digita o PIN (`POST /api/host/login`) e vai para a tela do host. As telas de PIN não dizem onde o PIN fica guardado.
-4. O servidor gera um token aleatório de 32 bytes, guarda só o hash em `guests` e devolve o token num cookie `HttpOnly` e `SameSite=Lax` (mais `Secure` quando via HTTPS).
-5. Toda ação do celular leva o cookie. O servidor descobre o `guest_id` por ele e checa a permissão. IDs de dono enviados pelo cliente nunca são confiados.
+1. **A lista de salas** fica em `/` (`GET /api/rooms`): as salas abertas, com nome, quem criou, 🔒 quando têm senha e quanto falta para expirar. Dela se entra numa sala, se abre a TV dela, se cria uma sala nova e se remove a sua.
+2. **Criar sala** (`POST /api/rooms`): o host, pelo `/host` ou pela lista, ou um convidado de qualquer sala aberta, com um nome e, se quiser, uma senha. Sem senha, a sala é pública. Quem cria é o dono da sala; o host não é dono de nenhuma, porque já pode tudo. A sala expira 24 h depois de criada e pode ser removida antes pelo dono ou pelo host (`DELETE /api/rooms/{code}`). Removida ou expirada, ela some da lista, o QR dela para de funcionar e as telas dela recebem o código 4404.
+3. **A TV** abre `/tv/<código da sala>`, pela lista ou por um link. Abrem a TV de uma sala: a senha da sala (`POST /api/rooms/{code}/tv`), o dono da sala, sem digitar a senha, o PIN da TV (`TV_PIN`, `POST /api/tv/login`) ou o PIN do host. Numa sala sem senha, só o dono e o admin (PIN do host ou da TV) abrem a TV; os convidados só entram na sala. Na lista, o botão "Abrir como TV" só aparece para quem pode usá-lo, e "Entrar na sala" é o caminho de quem vai escolher músicas. O cookie de TV diz para qual sala ele vale: o da senha, só para aquela sala; o do PIN da TV, para todas. A TV toca a fila e adiciona músicas: tocar, pausar, pular, mudar o tom da música que está tocando e, pelo menu lateral, buscar e adicionar, e remover ou mudar o tom das músicas que ela adicionou. O que é só do host continua pedindo o PIN do host: no menu da TV, as abas Gerenciar Acervo e Painel pedem o PIN ali mesmo, e "Sair do admin" (`POST /api/host/logout`) apaga o cookie de host e deixa o da TV. A tela de entrada da TV tem também o link "Acessar como admin", para o `/host`. A TV mostra o QR com `<origem>/j/<código da sala>`. A origem é o `PUBLIC_BASE_URL`, quando definido (domínio do túnel ou IP da rede local), seja qual for o endereço pelo qual a TV foi aberta: assim o QR serve tanto para quem está em casa quanto para quem está fora. Sem ele, vale a URL da TV.
+4. **O celular** abre `/j/<código>`, pelo QR ou pela lista, e escolhe como entrar. **Convidado:** informa um apelido e, se a sala tiver senha, a senha (`POST /api/rooms/{code}/join`). Senhas erradas contam no mesmo limite de tentativas dos PINs. **Admin:** digita o PIN do host (`POST /api/host/login`) e vai para a tela do host. As telas de PIN não dizem onde o PIN fica guardado.
+5. O servidor gera um token aleatório de 32 bytes, guarda só o hash em `guests` e devolve o token num cookie `HttpOnly` e `SameSite=Lax` (mais `Secure` quando via HTTPS). O mesmo token vale para todas as salas em que o celular entra: cada sala ganha um convidado com ele, e assim quem criou uma sala continua dono dela depois de entrar em outra.
+6. Toda ação do celular leva o cookie. O servidor descobre o convidado daquela sala por ele e checa a permissão. IDs de dono enviados pelo cliente nunca são confiados.
 
 **Matriz de permissões**
 
-| Ação | Dono da entrada | Outro convidado | TV | Host |
-| --- | --- | --- | --- | --- |
-| Buscar e adicionar música | Sim | Sim | Sim | Sim |
-| Remover entrada da fila (se estiver tocando, pula) | Sim | Não | As que ela adicionou | Sim |
-| Mudar o tom da entrada | Sim | Não | As que ela adicionou e a que está tocando | Sim |
-| Responder se a letra deve ser transcrita | Sim | Não | As que ela adicionou | Sim |
-| Reordenar a fila | Não | Não | Não | Sim |
-| Tocar, pausar, pular | Não | Não | Sim | Sim |
-| Ajustar voz guia e atraso da TV | Não | Não | Não | Sim |
-| Trocar letra ou reprocessar etapas | Não | Não | Não | Sim |
-| Marcar música do acervo como removida | Não | Não | Não | Sim |
-| Desfazer a remoção de uma música | Não | Não | Não | Sim |
+| Ação | Dono da sala | Dono da entrada | Outro convidado | TV | Host |
+| --- | --- | --- | --- | --- | --- |
+| Criar uma sala | Sim | Sim | Sim | Não | Sim |
+| Remover a sala | A dele | Não | Não | Não | Qualquer uma |
+| Buscar e adicionar música | Sim | Sim | Sim | Sim | Sim |
+| Remover entrada da fila (se estiver tocando, pula) | Qualquer uma | Sim | Não | As que ela adicionou | Sim |
+| Mudar o tom da entrada | Qualquer uma | Sim | Não | As que ela adicionou e a que está tocando | Sim |
+| Responder se a letra deve ser transcrita | Qualquer uma | Sim | Não | As que ela adicionou | Sim |
+| Reordenar a fila | Sim | Não | Não | Não | Sim |
+| Tocar, pausar, pular | Sim | Não | Não | Sim | Sim |
+| Ajustar voz guia e atraso da TV | Sim | Não | Não | Não | Sim |
+| Trocar letra ou reprocessar etapas | Não | Não | Não | Não | Sim |
+| Marcar música do acervo como removida | Não | Não | Não | Não | Sim |
+| Desfazer a remoção de uma música | Não | Não | Não | Não | Sim |
 
-A coluna TV vale para pedidos à API. A voz guia e o atraso que a própria TV ajusta na tela ficam só no navegador dela. A TV é dona das músicas que adiciona, como um convidado é das dele: cada sala ganha um convidado interno "TV" (com `token_hash` igual a `tv:<id da sala>`, que nenhum celular consegue ter, porque o de um convidado é um sha256), e as músicas da TV ficam no nome dele. Na fila elas aparecem como adicionadas por "TV", e o nome de quem canta é o que for digitado.
+O dono da sala é o "host" da sala dele: nas outras salas, é um convidado como qualquer outro. O acervo e o painel continuam só do host, porque são de todas as salas. A coluna TV vale para pedidos à API. A voz guia e o atraso que a própria TV ajusta na tela ficam só no navegador dela. A TV é dona das músicas que adiciona, como um convidado é das dele: cada sala ganha um convidado interno "TV" (com `token_hash` igual a `tv:<id da sala>`, que nenhum celular consegue ter, porque o de um convidado é um sha256), e as músicas da TV ficam no nome dele. Na fila elas aparecem como adicionadas por "TV", e o nome de quem canta é o que for digitado.
 
 A regra mora numa única função `can(ator, ação, entrada)`, chamada por todas as rotas e coberta por testes linha a linha desta matriz.
 
 **Casos de borda**
 
 - Convidado que limpa o navegador vira um convidado novo e perde a posse das entradas antigas; o host remove por ele.
-- O código da sala muda a cada nova sessão, então um QR antigo para de funcionar. Na internet, isso impede que estranhos entrem.
+- Cada sala tem o seu código, e o QR de uma sala removida ou expirada para de funcionar.
+- Sala pública: qualquer um com o endereço entra nela, mas só o dono e o admin abrem a TV dela. Para outra pessoa ser a TV, a sala é criada com senha.
+- Senha esquecida: não há como recuperar; o host remove a sala, ou ela expira.
 
 ## Player da TV e letra palavra por palavra
 
@@ -315,7 +324,7 @@ A TV é dona da reprodução. Ela toca os dois stems com a Web Audio API, desenh
 **Menu lateral**
 
 - Um botão "☰ Menu" na borda direita da TV, recolhido por padrão. Aberto, o menu é uma coluna à direita, ao lado da TV e nunca por cima: a TV encolhe para o espaço que sobra, e a letra, o QR e os controles continuam visíveis, para o menu poder ficar aberto durante a música. No celular, onde a coluna não cabe, o menu abre por cima da tela inteira.
-- Abas: **Sala**, com as sub-abas **Fila** e **Adicionar Música**, para quem entrou com o PIN da TV; **Gerenciar Acervo** e **Painel** pedem o PIN do host na própria aba. Com o PIN da TV, a Fila mostra a fila e o andamento e deixa remover e mudar o tom das músicas que a TV adicionou; com o do host, faz o que o `/host` faz (reordenar, remover, tentar de novo, abrir sala nova).
+- Abas: **Sala**, com as sub-abas **Fila** e **Adicionar Música**, para quem entrou com o PIN da TV; **Gerenciar Acervo** e **Painel** pedem o PIN do host na própria aba. Com o PIN da TV, a Fila mostra a fila e o andamento e deixa remover e mudar o tom das músicas que a TV adicionou; com o do host, ou para o dono da sala, faz o que o `/host` faz com a fila (reordenar, remover, tentar de novo).
 - As mesmas abas e sub-abas, com os mesmos nomes, estão no `/host` (Sala, Gerenciar Acervo e Painel) e no celular do convidado (só a Sala), para os três menus serem coerentes.
 - Desbloqueado o host, aparece "Sair do admin", que volta a bloquear Gerenciar Acervo e Painel. Se a própria TV entrou com o PIN do host, sair do admin pede o PIN de novo.
 - Fecha pelo "✕ Fechar" ou pelo Esc; o que se digita no menu não chega aos atalhos da TV (espaço e setas).
@@ -349,21 +358,24 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | Método e rota | Quem pode | O que faz |
 | --- | --- | --- |
 | `GET /api/search?q=` | Convidado | Busca no YouTube via yt-dlp; cada resultado traz `in_library`. Cache de 10 minutos por termo |
-| `POST /api/rooms/{code}/join` | Quem tem o código | Cria o convidado e devolve o cookie |
+| `GET /api/rooms` | Qualquer um | Salas abertas: código, nome, dono, se têm senha, criação e expiração e, para quem pergunta, se é o dono |
+| `GET /api/rooms/{code}` | Qualquer um | Uma sala aberta: o mesmo da lista, mais a origem pública do QR (`PUBLIC_BASE_URL`) e o que quem pergunta pode fazer nela (gerenciar, ser a TV) |
+| `POST /api/rooms/{code}/join` | Quem tem o código e, se a sala tiver, a senha | Cria o convidado da sala (com o token que o celular já tiver) e devolve o cookie |
 | `GET /api/rooms/{code}/queue` | Convidado | Fila atual |
 | `POST /api/rooms/{code}/queue` | Convidado, TV ou host | Adiciona `{video_id, singer_name, semitones}` |
-| `PATCH /api/rooms/{code}/queue/{id}` | Dono (tom), TV (tom da entrada que está tocando) ou host (tom e posição) | Altera a entrada |
-| `DELETE /api/rooms/{code}/queue/{id}` | Dono ou host | Remove a entrada (remoção lógica) |
-| `POST /api/rooms/{code}/queue/{id}/transcription` | Dono ou host | Responde à pergunta: `{"accept": true}` transcreve; `false` remove a entrada |
+| `PATCH /api/rooms/{code}/queue/{id}` | Dono da entrada (tom), TV (tom das que adicionou e da que está tocando), dono da sala ou host (tom e posição) | Altera a entrada |
+| `DELETE /api/rooms/{code}/queue/{id}` | Dono da entrada, TV (as que adicionou), dono da sala ou host | Remove a entrada (remoção lógica) |
+| `POST /api/rooms/{code}/queue/{id}/transcription` | Dono da entrada, dono da sala ou host | Responde à pergunta: `{"accept": true}` transcreve; `false` remove a entrada |
 | `GET /api/songs/{video_id}` | Convidado | Status, metadados, tom original e URLs de mídia |
 | `GET /api/preview/{video_id}` | Convidado | Prévia de um vídeo ainda não baixado, antes de adicioná-lo: a API acha o áudio com o yt-dlp e o repassa, com Range. Músicas do acervo tocam a prévia direto de `/media` |
 | `GET /api/library?q=` | Convidado | Acervo de músicas prontas; removidas ficam de fora. Com `removed=true` (só o host), lista as removidas, para desfazer a remoção |
 | `POST /api/host/login` | Qualquer um | Troca o PIN do host por um cookie de host |
 | `POST /api/host/logout` | Qualquer um | Apaga o cookie de host ("Sair do admin" no menu da TV); o cookie de TV e o de convidado ficam |
-| `POST /api/tv/login` | Qualquer um | Troca o PIN da TV (`TV_PIN`) por um cookie de TV; o PIN do host, digitado na tela da TV, vale um cookie de host. Divide com o login do host o limite de tentativas erradas por endereço |
-| `POST /api/rooms` | Host | Abre a sala da noite e gera o código; a anterior é encerrada. Com `{"move_queue": true}`, as entradas que esperavam passam para a sala nova, na mesma ordem, e só o host pode removê-las |
-| `GET /api/rooms/active` | Host ou TV | Sala ativa: código, nome e a origem pública do QR (`PUBLIC_BASE_URL`). A TV usa para achar a fila e montar o QR |
-| `POST /api/rooms/{code}/player/{ação}` | Host; a TV, só play, pause e skip | play, pause, skip, ou `guide` e `delay` com `{"value": ...}` (voz guia de 0 a 100% e atraso da TV em ms) |
+| `POST /api/tv/login` | Qualquer um | Troca o PIN da TV (`TV_PIN`) por um cookie de TV que vale para todas as salas; o PIN do host, digitado na tela da TV, vale um cookie de host. Divide com o login do host o limite de tentativas erradas por endereço |
+| `POST /api/rooms` | Host ou convidado de uma sala aberta | Cria uma sala `{name, password?}` com um código novo; quem cria é o dono (o host não é dono). As outras salas continuam abertas |
+| `DELETE /api/rooms/{code}` | Dono da sala ou host | Remove a sala (remoção lógica): some da lista, e as telas dela recebem o código 4404 |
+| `POST /api/rooms/{code}/tv` | Quem sabe a senha da sala, ou o dono da sala; numa sala sem senha, só o dono (o host e o PIN da TV já são a TV de todas) | Troca a senha por um cookie de TV daquela sala. Senhas erradas contam no limite dos PINs |
+| `POST /api/rooms/{code}/player/{ação}` | Host ou dono da sala; a TV, só play, pause e skip | play, pause, skip, ou `guide` e `delay` com `{"value": ...}` (voz guia de 0 a 100% e atraso da TV em ms) |
 | `PUT /api/songs/{video_id}/lyrics` | Host | Troca a letra e realinha |
 | `POST /api/songs/{video_id}/reprocess` | Host | Reprocessa as etapas escolhidas |
 | `DELETE /api/songs/{video_id}` | Host | Marca a música como removida; registro, arquivos e histórico ficam |
@@ -375,7 +387,7 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `POST /internal/events` | Worker | Progresso dos jobs. Não é exposto pelo Caddy |
 | `GET /internal/media-auth` | Caddy | Confere, antes de servir `/media` (`forward_auth`), se o pedido traz o cookie do host, da TV ou de um convidado de sala aberta. Não é exposto pelo Caddy |
 
-**WebSocket** em `/ws/rooms/{code}`, autenticado pelo mesmo cookie. Com `?role=tv`, só para o cookie de TV ou de host, a conexão é a da TV:
+**WebSocket** em `/ws/rooms/{code}`, autenticado pelo mesmo cookie. Com `?role=tv`, só para o cookie de TV daquela sala (ou de todas) ou de host, a conexão é a da TV:
 
 | Evento | Direção | Conteúdo |
 | --- | --- | --- |
@@ -388,7 +400,7 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 
 Ao cair a conexão, o cliente reconecta com espera crescente e recebe um `queue.snapshot` novo.
 
-Quando o host abre outra sala, o servidor fecha as conexões da sala antiga com o código 4404 (sala encerrada). A TV termina a música que estiver tocando, com o aviso de que a sala foi encerrada e o botão para ir à nova sala, e não começa mais nada da sala antiga. Os celulares mostram que a sala foi encerrada e pedem para ler o QR novo.
+Quando uma sala é removida ou expira, o servidor fecha as conexões dela com o código 4404 (sala encerrada). A API confere as expirações a cada minuto. A TV termina a música que estiver tocando, com o aviso de que a sala foi encerrada e o botão para ver as salas, e não começa mais nada dela. Os celulares mostram que a sala foi encerrada e levam à lista de salas.
 
 ## Implantação local e acesso remoto
 

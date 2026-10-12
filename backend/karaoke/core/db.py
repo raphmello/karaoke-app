@@ -50,12 +50,25 @@ def transaction(factory: sessionmaker[Session]) -> Iterator[Session]:
 
 def migrate(engine: Engine) -> None:
     """Bring the schema to the newest migration. The API and the worker both call it at start; it is idempotent,
-    and BEGIN IMMEDIATE keeps two of them from running it at the same time."""
+    and BEGIN IMMEDIATE keeps two of them from running it at the same time.
+
+    SQLite changes a table by rebuilding it, and a rebuild of a table others point at (guests, in 0002) trips the
+    foreign keys halfway. As SQLite prescribes, they are off while migrating, which only works outside a
+    transaction; before the commit, foreign_key_check confirms nothing was left pointing nowhere."""
     from alembic import command
     from alembic.config import Config
 
     config = Config()
     config.set_main_option("script_location", str(MIGRATIONS))
-    with engine.begin() as connection:
-        config.attributes["connection"] = connection
-        command.upgrade(config, "head")
+    with engine.connect() as connection:
+        raw = connection.connection.driver_connection  # pysqlite, outside SQLAlchemy's transaction
+        raw.execute("PRAGMA foreign_keys=OFF")
+        try:
+            with connection.begin():
+                config.attributes["connection"] = connection
+                command.upgrade(config, "head")
+                broken = connection.exec_driver_sql("PRAGMA foreign_key_check").fetchall()
+                if broken:
+                    raise RuntimeError(f"a migração deixou chaves estrangeiras quebradas: {broken[:5]}")
+        finally:
+            raw.execute("PRAGMA foreign_keys=ON")

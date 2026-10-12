@@ -38,7 +38,7 @@ from karaoke.core.models import (
     Song,
     utcnow,
 )
-from karaoke.core.songs import hold_for_decision, record, sync_from_manifest
+from karaoke.core.songs import hold_for_decision, open_rooms, record, sync_from_manifest
 from karaoke.core.storage import Manifest, SongFolder
 from karaoke.pipeline.process import Stage, process
 
@@ -67,7 +67,7 @@ def next_job(session: Session) -> Job | None:
     waiting = session.execute(
         select(QueueEntry.room_id, QueueEntry.video_id)
         .join(Room, Room.id == QueueEntry.room_id)
-        .where(Room.is_active, QueueEntry.status.in_((QUEUED, PLAYING)))
+        .where(*open_rooms(), QueueEntry.status.in_((QUEUED, PLAYING)))
         .order_by(QueueEntry.room_id, QueueEntry.position)
     ).all()
     turns: dict[str, float] = {}  # video_id -> how many entries play before its first one

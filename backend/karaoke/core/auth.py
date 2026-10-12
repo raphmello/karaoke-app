@@ -99,5 +99,20 @@ class HostSigner:
         nonce, signature = value.rsplit(".", 1)
         return hmac.compare_digest(signature, self._sign(role, nonce))
 
+    def issue_tv(self, scope: str) -> str:
+        """The TV's cookie, for one room (its id, from the room's password) or for all (ALL_ROOMS, from TV_PIN). The
+        scope is in the clear, and signed with the role, so a room's TV cookie never opens another room."""
+        return f"{scope}~{self.issue(f'tv:{scope}')}"
+
+    def tv_scope(self, value: str | None) -> str | None:
+        """The room id (or ALL_ROOMS) a TV cookie is good for; None when it is not a valid TV cookie."""
+        if not value or "~" not in value:
+            return None
+        scope, signed = value.split("~", 1)
+        return scope if self.verify(signed, f"tv:{scope}") else None
+
     def _sign(self, role: str, nonce: str) -> str:
         return hmac.new(self._secret, f"{role}:{nonce}".encode(), hashlib.sha256).hexdigest()
+
+
+ALL_ROOMS = "all"  # the TV cookie's scope from TV_PIN: the TV of every room

@@ -1,9 +1,11 @@
-"""The permission matrix of docs/ARCHITECTURE.md, row by row: owner of the entry, another guest, the TV, host."""
+"""The permission matrix of docs/ARCHITECTURE.md, row by row: the room's owner, the entry's owner, another guest,
+the TV, the host."""
 import pytest
 
 from karaoke.core.models import Guest, QueueEntry
 from karaoke.core.permissions import Action, Actor, can
 
+ROOM_OWNER = Actor(Guest(id="boss", room_id=1, nickname="Cris", token_hash="c"), room_owner=True)
 OWNER = Actor(Guest(id="owner", room_id=1, nickname="Ana", token_hash="a"))
 OTHER = Actor(Guest(id="other", room_id=1, nickname="Bia", token_hash="b"))
 TV = Actor(tv=True)
@@ -11,22 +13,28 @@ HOST = Actor()
 ENTRY = QueueEntry(id=1, room_id=1, video_id="dQw4w9WgXcQ", guest_id="owner", position=1, status="queued")
 
 MATRIX = [
-    # action, owner, other guest, TV, host (the TV's key change of the entry that plays has its own test)
-    (Action.ADD, True, True, True, True),
-    (Action.REMOVE_ENTRY, True, False, False, True),
-    (Action.CHANGE_KEY, True, False, False, True),
-    (Action.ANSWER_TRANSCRIPTION, True, False, False, True),
-    (Action.REORDER, False, False, False, True),
-    (Action.PLAYER, False, False, True, True),
-    (Action.PLAYER_SETTINGS, False, False, False, True),
-    (Action.REPROCESS, False, False, False, True),
-    (Action.REMOVE_SONG, False, False, False, True),
-    (Action.RESTORE_SONG, False, False, False, True),
+    # action, room's owner, entry's owner, other guest, TV, host (the TV's key change of the entry that plays has
+    # its own test). ENTRY is Ana's, not the room owner's.
+    (Action.CREATE_ROOM, True, True, True, False, True),
+    (Action.REMOVE_ROOM, True, False, False, False, True),
+    (Action.ADD, True, True, True, True, True),
+    (Action.REMOVE_ENTRY, True, True, False, False, True),
+    (Action.CHANGE_KEY, True, True, False, False, True),
+    (Action.ANSWER_TRANSCRIPTION, True, True, False, False, True),
+    (Action.REORDER, True, False, False, False, True),
+    (Action.PLAYER, True, False, False, True, True),
+    (Action.PLAYER_SETTINGS, True, False, False, False, True),
+    (Action.REPROCESS, False, False, False, False, True),
+    (Action.REMOVE_SONG, False, False, False, False, True),
+    (Action.RESTORE_SONG, False, False, False, False, True),
 ]
 
 
-@pytest.mark.parametrize(("action", "owner", "other", "tv", "host"), MATRIX, ids=[row[0].value for row in MATRIX])
-def test_matrix(action, owner, other, tv, host):
+@pytest.mark.parametrize(
+    ("action", "room_owner", "owner", "other", "tv", "host"), MATRIX, ids=[row[0].value for row in MATRIX]
+)
+def test_matrix(action, room_owner, owner, other, tv, host):
+    assert can(ROOM_OWNER, action, ENTRY) is room_owner
     assert can(OWNER, action, ENTRY) is owner
     assert can(OTHER, action, ENTRY) is other
     assert can(TV, action, ENTRY) is tv

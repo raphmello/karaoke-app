@@ -1,11 +1,11 @@
-// /tv: logs in with the TV's PIN (or the host's), finds the open room and plays its queue in order.
+// /tv/<code>: one room's TV (docs/ARCHITECTURE.md, "Salas"). It opens with the room's password, or for its owner,
+// or with the admin's or the TV's PIN; then it plays the room's queue in order.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, type ActiveRoom, api, onSessionLost, retryWhileRestarting, type QueueEntry } from "../api";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ApiError, api, onSessionLost, retryWhileRestarting, type QueueEntry, type RoomInfo } from "../api";
 import { keyLabel } from "../lib/keys";
 import { type Next, nextEntry, songTitle, statusText } from "../lib/queue";
 import { AudioEngine } from "../player/engine";
-import { HostLogin } from "../room/HostLogin";
 import { type Command, useRoom } from "../room/useRoom";
 import { useCompact } from "./compact";
 import { JoinQr } from "./JoinQr";
@@ -15,91 +15,68 @@ import { TvMenuLayout } from "./TvMenu";
 
 const COUNTDOWN_S = 5; // between songs (docs/ARCHITECTURE.md, "Entre músicas")
 
-export function TvPage() {
+export function TvPage({ code }: { code: string }) {
   const queryClient = useQueryClient();
-  const [room, setRoom] = useState<ActiveRoom | null>(null); // the room the TV is in
-  const [closed, setClosed] = useState(false); // the host closed it: the TV offers the new one
-  const [engine, setEngine] = useState<AudioEngine | null>(null); // kept across rooms: no second "Iniciar"
-  const active = useQuery({
-    queryKey: ["active-room"],
-    queryFn: api.activeRoom,
+  const [closed, setClosed] = useState(false); // the room was removed or expired: the song playing finishes
+  const [engine, setEngine] = useState<AudioEngine | null>(null);
+  const info = useQuery({
+    queryKey: ["room", code],
+    queryFn: () => api.room(code),
     ...retryWhileRestarting,
-    // waits for the host to open a room, or the next one after this one closed
-    refetchInterval: (query) => (!query.state.data || closed ? 3000 : false),
+    enabled: !closed,
   });
-  const status = active.error instanceof ApiError ? active.error.status : null;
+  const last = useRef<RoomInfo | null>(null); // what the screen keeps showing once the room is gone
+  if (info.data) last.current = info.data;
+  const room = info.data ?? last.current;
   const [lost, setLost] = useState(false);
   useEffect(() => onSessionLost(() => setLost(true)), []);
-  useEffect(() => {
-    if (!room && active.data) setRoom(active.data);
-  }, [room, active.data]);
-  const next = closed && active.data && active.data.code !== room?.code ? active.data : null;
 
-  if (status === 401 || lost) {
+  if (!room) {
+    if (info.error instanceof ApiError && info.error.status === 404) {
+      return (
+        <Centered>
+          <p className="text-3xl font-bold">Sala não encontrada</p>
+          <p className="text-xl text-zinc-400">A sala {code} foi encerrada ou expirou.</p>
+          <RoomsLink big />
+        </Centered>
+      );
+    }
     return (
-      <HostLogin
-        title="Open Karaoke"
-        submit="Iniciar"
+      <Centered>
+        <p className="text-xl text-zinc-400">{info.isError ? "Sem conexão com o servidor. Tentando de novo…" : "Carregando…"}</p>
+      </Centered>
+    );
+  }
+  if (!closed && (lost || !room.tv)) {
+    return (
+      <TvAccess
+        room={room}
+        engine={engine}
+        onEngine={setEngine}
         onDone={() => {
           setLost(false);
-          void queryClient.invalidateQueries();
+          void queryClient.invalidateQueries({ queryKey: ["room", code] });
         }}
-        footer={<AdminLink />}
-        login={async (pin) => {
-          // The tap that sends the PIN also starts the audio: the context is made before the first await, while it
-          // still counts as the tap. A wrong PIN throws it away; a failure past the login leaves the "Iniciar" screen.
-          const ctx = AudioEngine.context();
-          try {
-            await api.tvLogin(pin);
-          } catch (error) {
-            void ctx.close().catch(() => undefined);
-            throw error;
-          }
-          if (!engine) {
-            await AudioEngine.create(ctx).then(setEngine, () => void ctx.close().catch(() => undefined));
-          } else {
-            void ctx.close().catch(() => undefined);
-          }
-        }}
-        prompt="Digite o PIN para Iniciar."
       />
     );
   }
   // From here on, the TV has its menu on the right (docs/ARCHITECTURE.md, "Menu lateral")
-  if (room) {
-    return (
-      <TvMenuLayout room={closed ? null : room}>
-        <TvRoom
-          key={room.code}
-          room={room}
-          engine={engine}
-          onEngine={setEngine}
-          closed={closed ? { next, go: () => next && (setRoom(next), setClosed(false)) } : null}
-          onClosed={() => {
-            setClosed(true);
-            void queryClient.invalidateQueries({ queryKey: ["active-room"] });
-          }}
-        />
-      </TvMenuLayout>
-    );
-  }
   return (
-    <TvMenuLayout room={null}>
-      <Centered>
-        <p className="text-3xl font-bold">Nenhuma sala aberta</p>
-        <p className="text-xl text-zinc-400">
-          Abra a sala da noite no menu ☰, à direita, ou na tela do host (/host). A TV entra nela sozinha.
-        </p>
-      </Centered>
+    <TvMenuLayout room={room} closed={closed}>
+      <TvRoom key={room.code} room={room} engine={engine} onEngine={setEngine} closed={closed} onClosed={() => setClosed(true)} />
     </TvMenuLayout>
   );
 }
 
-/** The way from the TV's PIN screen to the host's screen; past the PIN, the TV's menu is the way to the host. */
-function AdminLink() {
-  return (
-    <a className="text-center text-sm text-zinc-400 underline hover:text-zinc-200" href="/host">
-      Acessar como admin
+/** Back to the list of rooms, to open another one. */
+function RoomsLink({ big = false }: { big?: boolean }) {
+  return big ? (
+    <a className="rounded-2xl bg-amber-400 px-10 py-5 text-3xl font-bold text-zinc-950" href="/">
+      Ver salas
+    </a>
+  ) : (
+    <a className="text-center text-sm text-zinc-400 underline hover:text-zinc-200" href="/">
+      Ver salas
     </a>
   );
 }
@@ -108,7 +85,98 @@ function Centered({ children }: { children: React.ReactNode }) {
   return <main className="flex h-full flex-col items-center justify-center gap-6 px-6 text-center">{children}</main>;
 }
 
-type Closed = { next: ActiveRoom | null; go: () => void } | null;
+/** How this browser becomes the room's TV: the room's password (or nothing, for its owner), or the admin's or the
+ *  TV's PIN. The tap that sends it also starts the audio: the context is made before the first await, while it still
+ *  counts as the tap; a refusal throws it away. */
+function TvAccess({
+  room,
+  engine,
+  onEngine,
+  onDone,
+}: {
+  room: RoomInfo;
+  engine: AudioEngine | null;
+  onEngine: (engine: AudioEngine) => void;
+  onDone: () => void;
+}) {
+  // The room's way in exists when it has a password or this browser owns it; otherwise only the PIN opens its TV
+  const roomWay = room.protected || room.mine;
+  const [way, setWay] = useState<"room" | "pin">(roomWay ? "room" : "pin");
+  const [secret, setSecret] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const needsSecret = way === "pin" || !room.mine;
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    const ctx = AudioEngine.context();
+    try {
+      if (way === "room") await api.roomTv(room.code, secret);
+      else await api.tvLogin(secret);
+    } catch (e) {
+      void ctx.close().catch(() => undefined);
+      setError((e as Error).message);
+      setBusy(false);
+      return;
+    }
+    if (!engine) await AudioEngine.create(ctx).then(onEngine, () => void ctx.close().catch(() => undefined));
+    else void ctx.close().catch(() => undefined);
+    onDone();
+  };
+
+  const prompt =
+    way === "pin"
+      ? "Digite o PIN do admin ou da TV."
+      : room.mine
+        ? "Esta sala é sua: toque em Iniciar para abrir a TV."
+        : "Digite a senha da sala para abrir a TV.";
+  return (
+    <main className="flex h-full items-center justify-center px-4">
+      <form onSubmit={submit} className="flex w-full max-w-sm flex-col gap-4 rounded-2xl bg-zinc-900 p-8">
+        <h1 className="text-2xl font-bold">{room.name ?? `Sala ${room.code}`}</h1>
+        <p className="text-zinc-400">{prompt}</p>
+        {!roomWay && (
+          <p className="text-sm text-zinc-500">Esta sala não tem senha: só o dono dela ou o admin abrem a TV.</p>
+        )}
+        {needsSecret && (
+          <input
+            type="password"
+            autoFocus
+            inputMode={way === "pin" ? "numeric" : undefined}
+            className="rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-xl outline-none focus:border-amber-400"
+            value={secret}
+            onChange={(event) => setSecret(event.target.value)}
+            aria-label={way === "pin" ? "PIN do admin ou da TV" : "Senha da sala"}
+          />
+        )}
+        {error && <p className="text-red-400">{error}</p>}
+        <button
+          className="rounded-lg bg-amber-400 px-4 py-3 text-lg font-bold text-zinc-950 disabled:opacity-50"
+          disabled={busy || (needsSecret && !secret)}
+          autoFocus={!needsSecret}
+        >
+          Iniciar
+        </button>
+        {roomWay && (
+          <button
+            type="button"
+            className="text-sm text-zinc-400 underline hover:text-zinc-200"
+            onClick={() => {
+              setWay(way === "room" ? "pin" : "room");
+              setSecret("");
+              setError(null);
+            }}
+          >
+            {way === "room" ? "Usar o PIN do admin" : room.mine ? "Abrir como dono da sala" : "Usar a senha da sala"}
+          </button>
+        )}
+        <RoomsLink />
+      </form>
+    </main>
+  );
+}
 
 function TvRoom({
   room,
@@ -117,10 +185,10 @@ function TvRoom({
   closed,
   onClosed,
 }: {
-  room: ActiveRoom;
+  room: RoomInfo;
   engine: AudioEngine | null;
   onEngine: (engine: AudioEngine) => void;
-  closed: Closed;
+  closed: boolean;
   onClosed: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
@@ -134,10 +202,8 @@ function TvRoom({
     }
   };
 
-  if (closed) {
-    // Before "Iniciar" nothing plays: the notice can take the whole screen.
-    if (!engine) return <ClosedNotice room={room} closed={closed} />;
-  }
+  // Before "Iniciar" nothing plays: the notice can take the whole screen.
+  if (closed && !engine) return <ClosedNotice room={room} />;
   if (!engine) {
     return (
       <Centered>
@@ -152,41 +218,27 @@ function TvRoom({
   return <TvQueue room={room} engine={engine} closed={closed} onClosed={onClosed} />;
 }
 
-/** The host opened another room: this one's QR no longer works. */
-function ClosedNotice({ room, closed }: { room: ActiveRoom; closed: NonNullable<Closed> }) {
+/** The room was removed or expired: its QR no longer works. */
+function ClosedNotice({ room }: { room: RoomInfo }) {
   return (
     <Centered>
-      <p className="text-4xl font-bold">A sala {room.code} foi encerrada</p>
-      {closed.next ? (
-        <>
-          <p className="text-xl text-zinc-400">
-            O host abriu a sala {closed.next.code}
-            {closed.next.name ? ` (${closed.next.name})` : ""}.
-          </p>
-          <button className="rounded-2xl bg-amber-400 px-10 py-5 text-3xl font-bold text-zinc-950" onClick={closed.go} autoFocus>
-            Ir para a nova sala
-          </button>
-        </>
-      ) : (
-        <p className="text-xl text-zinc-400">Aguardando o host abrir a nova sala…</p>
-      )}
+      <p className="text-4xl font-bold">A sala {room.name ?? room.code} foi encerrada</p>
+      <p className="text-xl text-zinc-400">Escolha outra sala para continuar.</p>
+      <RoomsLink big />
     </Centered>
   );
 }
 
 /** Over the song still playing in a closed room: it finishes, and the TV can move on at any time. */
-function ClosedBanner({ room, closed }: { room: ActiveRoom; closed: NonNullable<Closed> }) {
+function ClosedBanner({ room }: { room: RoomInfo }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 bg-amber-950 px-6 py-3 text-amber-100">
       <p>
-        <span className="font-bold">A sala {room.code} foi encerrada.</span>{" "}
-        {closed.next ? `A nova sala é ${closed.next.code}. Esta música vai até o fim.` : "Aguardando o host abrir a nova sala…"}
+        <span className="font-bold">A sala {room.name ?? room.code} foi encerrada.</span> Esta música vai até o fim.
       </p>
-      {closed.next && (
-        <button className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950" onClick={closed.go}>
-          Ir para a nova sala
-        </button>
-      )}
+      <a className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950" href="/">
+        Ver salas
+      </a>
     </div>
   );
 }
@@ -197,9 +249,9 @@ function TvQueue({
   closed,
   onClosed,
 }: {
-  room: ActiveRoom;
+  room: RoomInfo;
   engine: AudioEngine;
-  closed: Closed;
+  closed: boolean;
   onClosed: () => void;
 }) {
   const commands = useRef<((command: Command) => void) | null>(null);
@@ -236,8 +288,8 @@ function TvQueue({
   const queryClient = useQueryClient();
   useEffect(() => {
     if (live.closedWith === 4404) onClosed();
-    else if (live.closedWith) void queryClient.invalidateQueries({ queryKey: ["active-room"] });
-  }, [live.closedWith, queryClient]);
+    else if (live.closedWith) void queryClient.invalidateQueries({ queryKey: ["room", room.code] });
+  }, [live.closedWith, queryClient, room.code]);
 
   const entries = live.entries?.filter((entry) => !finished.current.has(entry.id)) ?? null;
   const next = entries ? nextEntry(entries) : null;
@@ -307,11 +359,11 @@ function TvQueue({
             <UpNext next={nextEntry(entries?.filter((e) => e.id !== current.id) ?? [])} compact={compact} />
           )
         }
-        banner={closed ? <ClosedBanner room={room} closed={closed} /> : undefined}
+        banner={closed ? <ClosedBanner room={room} /> : undefined}
       />
     );
   }
-  if (closed) return <ClosedNotice room={room} closed={closed} />;
+  if (closed) return <ClosedNotice room={room} />;
   if (upcoming) {
     return (
       <BetweenSongs room={room} entry={upcoming} left={left} held={held} connected={live.connected} compact={compact} />
@@ -347,7 +399,7 @@ function BetweenSongs({
   connected,
   compact,
 }: {
-  room: ActiveRoom;
+  room: RoomInfo;
   entry: QueueEntry;
   left: number;
   held: boolean;

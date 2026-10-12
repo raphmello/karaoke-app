@@ -59,5 +59,5 @@ def test_media_needs_the_host_or_a_guest_of_an_open_room(client, host, code, pho
     assert host.get("/internal/media-auth").status_code == 204
     ana = phone(code, "Ana")
     assert ana.get("/internal/media-auth").status_code == 204
-    host.post("/api/rooms", json={})  # Ana's room closes
+    host.delete(f"/api/rooms/{code}")  # Ana's only room closes
     assert ana.get("/internal/media-auth").status_code == 401

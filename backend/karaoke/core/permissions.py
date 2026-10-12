@@ -6,6 +6,7 @@ from enum import StrEnum
 
 from karaoke.core.models import PLAYING, Guest, QueueEntry
 
+
 def tv_token(room_id: int) -> str:
     """guests.token_hash of a room's "TV" guest, who owns the songs the TV adds. A real guest's is a sha256 in hex,
     which never has a colon, so no phone can ever be this guest."""
@@ -14,14 +15,17 @@ def tv_token(room_id: int) -> str:
 
 @dataclass(frozen=True)
 class Actor:
-    """The host, the TV, a guest of an active room, or the TV and a guest at once. A request with the host cookie
-    acts as the host. The TV cookie (TV_PIN) plays the queue and owns the songs it adds, through the room's "TV" guest
-    (`tv_guest`, None until the TV adds one); a phone that is the TV and also joined as a guest (an iPhone mirrored
-    to the TV, say) carries both cookies and has both sets of rights."""
+    """Who calls, in one room (or in none, for what all rooms share: the library, the search, the media).
+
+    The host's cookie acts as the host everywhere. Otherwise the caller may be, at once: the guest of this room (the
+    phone's token, which it keeps across rooms), the room's owner (the guest who made it), and the room's TV (a TV
+    cookie for this room or for all). The TV owns the songs it adds through the room's "TV" guest (`tv_guest`). A
+    phone that is the TV and also joined as a guest (an iPhone mirrored to the TV, say) has both sets of rights."""
 
     guest: Guest | None = None
     tv: bool = False
     tv_guest: Guest | None = None
+    room_owner: bool = False
 
     @property
     def is_host(self) -> bool:
@@ -30,6 +34,11 @@ class Actor:
     @property
     def is_tv(self) -> bool:
         return self.tv
+
+    @property
+    def manages(self) -> bool:
+        """The host, or the owner of this room: the queue's and the player's controls are theirs."""
+        return self.is_host or self.room_owner
 
     @property
     def owner_ids(self) -> set[str]:
@@ -52,6 +61,8 @@ class Actor:
 
 
 class Action(StrEnum):
+    CREATE_ROOM = "create_room"
+    REMOVE_ROOM = "remove_room"
     ADD = "add"  # search and add a song
     REMOVE_ENTRY = "remove_entry"  # if it is playing, it is skipped
     CHANGE_KEY = "change_key"
@@ -64,17 +75,24 @@ class Action(StrEnum):
     RESTORE_SONG = "restore_song"
 
 
-EVERYONE = {Action.ADD}
-OWNER = {Action.REMOVE_ENTRY, Action.CHANGE_KEY, Action.ANSWER_TRANSCRIPTION}
+GUEST = {Action.ADD, Action.CREATE_ROOM}
+OWNER = {Action.REMOVE_ENTRY, Action.CHANGE_KEY, Action.ANSWER_TRANSCRIPTION}  # of the entry
 TV = {Action.PLAYER, Action.ADD}  # the key of the entry that is playing; and, as an owner, the songs it added
+# The room's owner is the "host" of that room; the library and the panel stay the host's
+ROOM_OWNER = {
+    Action.REMOVE_ROOM, Action.ADD, Action.REMOVE_ENTRY, Action.CHANGE_KEY, Action.ANSWER_TRANSCRIPTION,
+    Action.REORDER, Action.PLAYER, Action.PLAYER_SETTINGS, Action.CREATE_ROOM,
+}
 
 
 def can(actor: Actor, action: Action, entry: QueueEntry | None = None) -> bool:
     if actor.is_host:
         return True
+    if actor.room_owner and action in ROOM_OWNER:
+        return True
     if actor.is_tv and (action in TV or (action == Action.CHANGE_KEY and entry is not None and entry.status == PLAYING)):
         return True
-    if actor.guest is not None and action in EVERYONE:
+    if actor.guest is not None and action in GUEST:
         return True
     if action in OWNER:
         return entry is not None and entry.guest_id is not None and entry.guest_id in actor.owner_ids

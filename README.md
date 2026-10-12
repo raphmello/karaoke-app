@@ -26,16 +26,18 @@ Sobem três serviços: `caddy` (porta 8080, a única exposta, com o frontend com
 
 ## Uma noite de karaokê
 
-1. No `.env`, defina `HOST_PIN`, `TV_PIN` (outro PIN, que só abre o player da TV) e `PUBLIC_BASE_URL=http://<IP do PC>:8080` (o endereço que os celulares usam).
-2. Em `http://<IP do PC>:8080/host`, entre com o PIN e abra a sala da noite.
-3. No aparelho ligado à TV, abra `http://<IP do PC>:8080/tv`, entre com o PIN da TV (o do host também serve) e toque em **Iniciar**. A TV mostra o QR Code.
-4. Cada convidado lê o QR, escolhe um apelido, busca e adiciona músicas, já no tom em que quer começar. Antes de adicionar, **▶ Ouvir** toca uma prévia (do acervo, direto do PC; da busca, repassada do YouTube pela API). A fila toca em ordem, sozinha.
+1. No `.env`, defina `HOST_PIN`, `TV_PIN` (outro PIN, que só abre o player da TV, de qualquer sala) e `PUBLIC_BASE_URL=http://<IP do PC>:8080` (o endereço que os celulares usam).
+2. Em `http://<IP do PC>:8080/` fica a lista das salas abertas. Para criar uma, entre como admin (**Acessar como admin**, com o PIN do host) e use **Criar sala**: um nome e, se quiser, uma senha. Sem senha, a sala é pública.
+3. No aparelho ligado à TV, abra a lista e toque em **Abrir como TV** na sala. A TV pede a senha da sala ou, em **Usar o PIN do admin**, o PIN do host ou o da TV; o dono da sala só toca em **Iniciar**. Numa sala sem senha, só o dono e o admin abrem a TV. A TV mostra o QR Code.
+4. Cada convidado lê o QR (ou entra pela lista, com **Entrar na sala**), escolhe um apelido, digita a senha se a sala tiver uma, busca e adiciona músicas, já no tom em que quer começar. Antes de adicionar, **▶ Ouvir** toca uma prévia (do acervo, direto do PC; da busca, repassada do YouTube pela API). A fila toca em ordem, sozinha.
 
-Na TV, os botões **−½ tom**, **+½ tom** e **Voltar ao tom original** mudam o tom ao vivo (as setas ↑ e ↓ também; espaço pausa). O dono de cada música muda o tom dela pelo celular, e só ele (ou o host) pode removê-la. Quando a letra não é encontrada, o celular do dono pergunta se ela deve ser transcrita; um "não" tira a música da fila sem baixar nada. Entre uma música e outra, a TV mostra o próximo cantor, a música, o tom e o QR, e a próxima começa depois de 5 s.
+Várias salas podem ficar abertas ao mesmo tempo, cada uma com a sua fila e a sua TV; o acervo é um só. Qualquer convidado de uma sala aberta também cria salas, e vira o dono delas: o dono muda o tom, remove e reordena qualquer música da sala, controla o player pelo celular e pode **Excluir sala**. O admin exclui qualquer sala. Uma sala expira 24 h depois de criada; a tela mostra quanto falta, e o aviso fica amarelo na última meia hora. Quando a sala é excluída ou expira, a música que estiver tocando vai até o fim e as telas levam de volta à lista (**Ver salas**). Uma senha esquecida não se recupera: o admin exclui a sala, ou ela expira.
+
+Na TV, os botões **−½ tom**, **+½ tom** e **Voltar ao tom original** mudam o tom ao vivo (as setas ↑ e ↓ também; espaço pausa). O dono de cada música muda o tom dela pelo celular, e só ele (ou o dono da sala, ou o host) pode removê-la. Quando a letra não é encontrada, o celular do dono pergunta se ela deve ser transcrita; um "não" tira a música da fila sem baixar nada. Entre uma música e outra, a TV mostra o próximo cantor, a música, o tom e o QR, e a próxima começa depois de 5 s.
 
 O `/host` tem três abas:
 
-- **Sala:** abrir a sala, tocar, pausar e pular (entre músicas, pular passa a próxima), voz guia e atraso da TV, e as sub-abas **Fila** (reordenar, remover e tentar de novo uma música que falhou) e **Adicionar Música**. O celular do convidado tem a mesma Sala, e a TV, as mesmas abas no menu ☰ à direita.
+- **Salas:** criar e excluir salas e, na sala escolhida, **Abrir como TV**, tocar, pausar e pular (entre músicas, pular passa a próxima), voz guia e atraso da TV, e as sub-abas **Fila** (reordenar, remover e tentar de novo uma música que falhou) e **Adicionar Música**. Na lista, **Gerenciar** abre a sala direto aqui. O celular do convidado tem a mesma Sala (o dono da sala também tem o player), e a TV, as mesmas abas no menu ☰ à direita, com **Ver salas** para trocar de sala.
 - **Gerenciar Acervo:** trocar a letra (colando LRC ou texto; só o alinhamento roda de novo), reprocessar etapas, remover e desfazer a remoção, e ver o histórico de cada música.
 - **Painel:** os jobs, com "Tentar de novo" para os que falharam, e o disco, com aviso quando o espaço estiver acabando.
 
@@ -45,7 +47,7 @@ Para mexer no frontend sem reconstruir a imagem, com a pilha no ar:
 cd web && pnpm install && pnpm dev
 ```
 
-O Vite abre em `http://localhost:5173/tv` e repassa `/api`, `/media` e `/ws` para o Caddy.
+O Vite abre em `http://localhost:5173/` (a lista de salas) e repassa `/api`, `/media` e `/ws` para o Caddy.
 
 ## Acesso de fora de casa (Cloudflare Tunnel)
 
@@ -60,7 +62,7 @@ Com o túnel, o app fica em `https://karaoke.<seu-domínio>` sem abrir portas no
 docker compose --profile remote up -d
 ```
 
-Use um PIN de host forte: 5 tentativas erradas do mesmo endereço bloqueiam o login dele por 10 minutos. Áudios e letras (`/media`) só abrem para o host e para convidados de uma sala aberta.
+Use um PIN de host forte: 5 tentativas erradas do mesmo endereço bloqueiam o login dele por 10 minutos (vale também para os PINs da TV e as senhas das salas). Uma sala sem senha fica aberta a quem tiver o endereço; com o túnel, crie as salas com senha. Áudios e letras (`/media`) só abrem para o host e para convidados de uma sala aberta.
 
 Para o PC ficar sempre pronto: no Windows, desligue a suspensão no plano de energia e deixe o Docker Desktop iniciar com o Windows; os containers voltam sozinhos (`restart: unless-stopped`).
 
@@ -70,7 +72,8 @@ Um roteiro mínimo com `curl`:
 
 ```bash
 curl -c host.txt -H 'content-type: application/json' -d '{"pin":"<seu PIN>"}' http://localhost:8080/api/host/login
-curl -b host.txt -H 'content-type: application/json' -d '{"name":"Sexta"}' http://localhost:8080/api/rooms
+curl -b host.txt -H 'content-type: application/json' -d '{"name":"Sexta"}' http://localhost:8080/api/rooms   # com senha: {"name":"Sexta","password":"..."}
+curl http://localhost:8080/api/rooms
 curl -c ana.txt -H 'content-type: application/json' -d '{"nickname":"Ana"}' http://localhost:8080/api/rooms/<código>/join
 curl -b ana.txt -H 'content-type: application/json' -d '{"video_id":"<ID ou URL>"}' http://localhost:8080/api/rooms/<código>/queue
 curl -b ana.txt http://localhost:8080/api/rooms/<código>/queue

@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 // `pnpm dev` runs outside Docker; the API and the media come from the stack, through Caddy.
-const stack = "http://localhost:8080";
+const stack = process.env.KARAOKE_STACK ?? "http://localhost:8080"; // another stack to try a branch against
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],

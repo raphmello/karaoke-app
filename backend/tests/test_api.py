@@ -94,28 +94,25 @@ def test_without_host_pin_nobody_is_the_host(settings, search):
         assert client.post("/api/host/login", json={"pin": ""}).status_code == 401
 
 
-def test_only_the_host_opens_a_room(app, client):
-    code = open_room(host(client))
-    phone = guest(app, code)
-    assert phone.post("/api/rooms", json={}).status_code == 401
+def test_a_stranger_cannot_open_a_room_and_a_room_needs_a_name(app, client):
+    assert new_client(app).post("/api/rooms", json={"name": "Minha"}).status_code == 401
+    assert host(client).post("/api/rooms", json={"name": "   "}).status_code == 422
 
 
-def test_a_new_room_closes_the_old_one(app, client):
+def test_a_new_room_leaves_the_others_open(app, client):
     old = open_room(host(client))
     phone = guest(app, old)
     new = open_room(client)
     assert old != new and len(new) == 6
-    assert phone.get(f"/api/rooms/{old}/queue").status_code == 404
-    assert phone.get("/api/library").status_code == 401  # the old room's cookie is worthless now
-    assert new_client(app).post(f"/api/rooms/{old}/join", json={"nickname": "Bia"}).status_code == 404
+    assert phone.get(f"/api/rooms/{old}/queue").status_code == 200  # the first room goes on
+    assert {room["code"] for room in client.get("/api/rooms").json()} == {old, new}
 
 
 def test_a_guest_of_another_room_is_kept_out(app, client, db):
     code = open_room(host(client))
     phone = guest(app, code)
-    with transaction(db) as session:
-        session.add(Room(code="ZZZ999", host_pin_hash="x"))  # a second active room, which v1 never opens
-    assert phone.get("/api/rooms/ZZZ999/queue").status_code == 403
+    other = open_room(client)
+    assert phone.get(f"/api/rooms/{other}/queue").status_code == 401  # it has to join that room first
 
 
 def test_joining_again_keeps_the_same_guest(app, client):
