@@ -22,8 +22,8 @@ export function RoomsPage() {
             TV, use <span className="font-semibold text-zinc-200">Abrir como TV</span>.
           </p>
         </div>
-        {/* Anyone makes a room and becomes its owner; the admin makes it as no one's */}
-        <CreateRoomButton asHost={isHost} onCreated={(room) => location.assign(isHost ? `/host?sala=${room.code}` : `/m/${room.code}`)} />
+        {/* Anyone makes a room and becomes its owner (the admin makes it as no one's); its TV opens right away */}
+        <CreateRoomButton asHost={isHost} opensTv />
       </header>
 
       {rooms.isPending ? (

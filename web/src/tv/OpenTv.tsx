@@ -23,7 +23,12 @@ export function engineTaken(engine: Promise<AudioEngine>): void {
 
 /** Becomes the room's TV and moves to it, from inside a tap. Throws what the API said, with the audio dropped. */
 async function openTv(code: string, password?: string): Promise<void> {
-  const ctx = AudioEngine.context(); // before the first await, while it still counts as the tap
+  await becomeTv(code, AudioEngine.context(), password); // the context before the first await, while it is the tap
+}
+
+/** Becomes the room's TV, with audio a tap already started (`AudioEngine.context()`), and moves to it without a
+ *  reload. Throws what the API said, with the audio dropped. */
+export async function becomeTv(code: string, ctx: AudioContext, password?: string): Promise<void> {
   try {
     await api.roomTv(code, password);
   } catch (e) {

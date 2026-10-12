@@ -1,31 +1,47 @@
 // "Criar sala" (docs/ARCHITECTURE.md, "Salas"): anyone makes a room with a name, an optional password (none: a public
-// room) and, except the admin, the nickname the room shows as its owner, who goes straight into it. The other rooms
-// stay open.
+// room) and, except the admin, the nickname the room shows as its owner, who goes straight into it. From the list,
+// the tap on "Criar sala" also opens the new room's TV, ready, as "Abrir como TV" does (a phone joins by the QR). The
+// other rooms stay open.
 import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useEffect, useState } from "react";
 import { api, type Room } from "../api";
 import { loadNickname, saveNickname } from "../phone/identity";
+import { navigate } from "../lib/navigate";
+import { AudioEngine } from "../player/engine";
+import { becomeTv } from "../tv/OpenTv";
 
 const button = "rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700 disabled:opacity-40";
 
-export function CreateRoomButton({ asHost, onCreated }: { asHost: boolean; onCreated?: (room: Room) => void }) {
+export function CreateRoomButton({
+  asHost,
+  opensTv = false,
+  onCreated,
+}: {
+  asHost: boolean;
+  opensTv?: boolean; // the new room's TV opens in this page
+  onCreated?: (room: Room) => void;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <button className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950" onClick={() => setOpen(true)}>
         Criar sala
       </button>
-      {open && <CreateRoomDialog asHost={asHost} onClose={() => setOpen(false)} onCreated={onCreated} />}
+      {open && (
+        <CreateRoomDialog asHost={asHost} opensTv={opensTv} onClose={() => setOpen(false)} onCreated={onCreated} />
+      )}
     </>
   );
 }
 
 function CreateRoomDialog({
   asHost,
+  opensTv,
   onClose,
   onCreated,
 }: {
   asHost: boolean;
+  opensTv: boolean;
   onClose: () => void;
   onCreated?: (room: Room) => void;
 }) {
@@ -45,20 +61,29 @@ function CreateRoomDialog({
     event.preventDefault();
     setBusy(true);
     setError(null);
+    const ctx = opensTv ? AudioEngine.context() : null; // before the first await, while it still counts as the tap
+    let room: Room;
     try {
-      const room = await api.createRoom({
+      room = await api.createRoom({
         name: name.trim(),
         password: password || undefined,
         nickname: asHost ? undefined : nickname.trim() || undefined,
       });
-      if (!asHost) saveNickname(nickname.trim());
-      await queryClient.invalidateQueries({ queryKey: ["rooms"] });
-      onClose();
-      onCreated?.(room);
     } catch (e) {
+      void ctx?.close().catch(() => undefined);
       setError((e as Error).message);
       setBusy(false);
+      return;
     }
+    if (!asHost) saveNickname(nickname.trim());
+    await queryClient.invalidateQueries({ queryKey: ["rooms"] });
+    if (ctx) {
+      // Its owner (or the admin) needs no password: the TV opens ready. Should that fail, its screen asks for a tap
+      await becomeTv(room.code, ctx).catch(() => navigate(`/tv/${room.code}`));
+      return;
+    }
+    onClose();
+    onCreated?.(room);
   };
 
   const field = "rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-base text-zinc-100 outline-none focus:border-amber-400";

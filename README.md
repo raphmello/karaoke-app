@@ -27,7 +27,7 @@ Sobem três serviços: `caddy` (porta 8080, a única exposta, com o frontend com
 ## Uma noite de karaokê
 
 1. No `.env`, defina `HOST_PIN` e `PUBLIC_BASE_URL=http://<IP do PC>:8080` (o endereço que os celulares usam).
-2. Em `http://<IP do PC>:8080/` fica a lista das salas abertas. Qualquer pessoa cria uma em **Criar sala**: um nome, se quiser uma senha (sem senha, a sala é pública) e o apelido, e já entra nela como dono. O admin (**Acessar como admin**, com o PIN do host) também cria salas, sem ser dono de nenhuma.
+2. Em `http://<IP do PC>:8080/` fica a lista das salas abertas. Qualquer pessoa cria uma em **Criar sala**: um nome, se quiser uma senha (sem senha, a sala é pública) e o apelido, e vira o dono dela: o aparelho em que a sala foi criada já abre como a TV dela, pronto para tocar (no celular, entra-se pelo QR ou por **Entrar na sala**). O admin (**Acessar como admin**, com o PIN do host) também cria salas, sem ser dono de nenhuma.
 3. No aparelho ligado à TV, abra a lista e toque em **Abrir como TV**: a TV já abre pronta, com o som ligado, e mostra o QR Code. Numa sala com senha, quem não é o dono nem o admin digita a senha numa janelinha antes; numa sala sem senha, qualquer pessoa abre a TV. Quem abre o endereço `/tv/<código>` direto, ou recarrega a página da TV, toca uma vez em **Toque para começar**, porque o navegador não toca som sem um toque.
 4. Cada convidado lê o QR (ou entra pela lista, com **Entrar na sala**), escolhe um apelido, digita a senha se a sala tiver uma, busca e adiciona músicas, já no tom em que quer começar. Antes de adicionar, **▶ Ouvir** toca uma prévia (do acervo, direto do PC; da busca, repassada do YouTube pela API). A fila toca em ordem, sozinha.
 
