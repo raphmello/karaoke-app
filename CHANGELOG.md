@@ -2,6 +2,31 @@
 
 As mudanças de cada release do Karaokê, da mais nova para a mais antiga. As versões seguem o formato `ANO.MAJOR.MINOR`, e cada release tem um branch `release/<versão>` e uma tag `v<versão>`.
 
+## [2026.1.5] - 2026-10-12
+
+### Novidades
+
+- **Várias salas ao mesmo tempo**, cada uma com a sua fila e a sua TV; o acervo continua um só.
+  - O endereço principal (`/`) abre a **lista de salas**, com nome, quem criou, 🔒 nas que têm senha e quanto falta para expirar. Dela se entra numa sala (**Entrar na sala**), se abre a TV (**Abrir como TV**), se cria e se exclui uma sala.
+  - **Criar sala:** o admin ou qualquer convidado de uma sala aberta, com um nome e uma senha opcional. Sem senha, a sala é pública. Quem cria é o dono da sala.
+  - **Senha da sala:** pedida ao entrar como convidado e ao abrir a TV. As tentativas erradas contam no mesmo bloqueio dos PINs.
+  - **A TV de cada sala** fica em `/tv/<código>`. Abrem a TV: a senha da sala, o dono (só com um toque em **Iniciar**), o PIN da TV ou o do admin. Numa sala sem senha, só o dono e o admin abrem a TV.
+  - **O dono da sala** muda o tom, remove e reordena qualquer música dela, e controla o player (tocar, pausar, pular, voz guia e atraso) pelo celular.
+  - **Excluir sala:** o dono exclui a dele; o admin, qualquer uma.
+  - **Expiração:** a sala expira 24 h depois de criada. As telas mostram quanto falta, em amarelo na última meia hora. Excluída ou expirada, a música que estiver tocando vai até o fim e as telas levam de volta à lista.
+  - **Ver salas** em todas as telas de uma sala, para trocar de sala.
+- **`/host` gerencia todas as salas:** criar, excluir, escolher uma e controlar a fila e o player dela. Na lista, **Gerenciar** abre a sala direto no `/host`.
+
+### Mudanças
+
+- O endereço principal não redireciona mais para `/tv`: abre a lista de salas.
+- A sala que estava aberta na atualização virou uma sala do admin, sem senha, que expira 24 h depois.
+- O banco ganha a migração `0002` (dono, senha e expiração das salas; um convidado por sala para o mesmo celular).
+
+### Correções
+
+- A API não registra mais um erro quando fecha as conexões de uma sala excluída ou expirada.
+
 ## [2026.1.4] - 2026-10-09
 
 ### Novidades
