@@ -2,6 +2,20 @@
 
 As mudanças de cada release do Karaokê, da mais nova para a mais antiga. As versões seguem o formato `ANO.MAJOR.MINOR`, e cada release tem um branch `release/<versão>` e uma tag `v<versão>`.
 
+## [2026.1.6] - 2026-10-12
+
+### Novidades
+
+- **Qualquer pessoa cria uma sala:** o botão **Criar sala** aparece sempre na lista, mesmo sem nenhuma sala aberta. Quem ainda não está em nenhuma sala informa também um apelido e vira o dono da sala.
+- **Criar a sala já abre a TV:** o toque em **Criar sala** liga o som e abre a TV da sala nova na mesma página, pronta para tocar. O celular entra pelo QR ou por **Entrar na sala**.
+- **Abrir como TV sem a tela de Iniciar:** o toque no botão já liga o som, e a TV abre na mesma página, sem recarregar. Só quem abre `/tv/<código>` direto, ou recarrega a página, toca uma vez em **Toque para começar**.
+- **Quem abre a TV:** quem sabe a senha da sala (digitada numa janelinha ao tocar em **Abrir como TV**), o dono da sala, sem digitar a senha, e o admin. Numa sala sem senha, qualquer pessoa.
+
+### Mudanças
+
+- **O PIN da TV (`TV_PIN`) saiu:** a TV de uma sala abre pela senha dela, pelo dono ou pelo admin. A linha `TV_PIN` do `.env` passa a ser ignorada, e TVs abertas com esse PIN precisam ser abertas de novo.
+- **Limite de criação de salas:** fora o admin, cada endereço cria no máximo 10 salas por hora, e com 20 salas abertas só o admin cria outra.
+
 ## [2026.1.5] - 2026-10-12
 
 ### Novidades
