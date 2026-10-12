@@ -25,6 +25,7 @@ from karaoke.api import deps
 from karaoke.api.realtime import Connection, Hub
 from karaoke.api.schemas import (
     RoomInfoOut,
+    RoomTvIn,
     DiskOut,
     EventIn,
     GuestOut,
@@ -357,16 +358,16 @@ def join(request: Request, response: Response, db: Sessions, code: str, body: Jo
 
 
 @api.post("/rooms/{code}/tv", status_code=204)
-def room_tv(request: Request, response: Response, db: Sessions, code: str) -> None:
-    """"Abrir como TV": only the room's owner and the admin open its TV; the room's password is for joining only.
-    The owner gets a TV cookie for this room; the host already is the TV of every room."""
+def room_tv(request: Request, response: Response, db: Sessions, code: str, body: RoomTvIn | None = None) -> None:
+    """"Abrir como TV": the room's password gives a TV cookie for this room; its owner needs no password, and a room
+    without one has nothing to check, so anyone opens its TV. The host already is the TV of every room."""
     with transaction(db) as session:
         room = deps.open_room(session, code)
         actor = deps.find_actor(request, session, room)
         if actor and (actor.is_host or actor.is_tv):
             return
         if not (actor and actor.room_owner):
-            raise HTTPException(403, "Só o dono da sala ou o admin abrem a TV desta sala.")
+            check_room_password(request, room, body.password if body else None)
     deps.set_cookie(request, response, TV_COOKIE, deps.host_signer(request).issue_tv(str(room.id)), HOST_COOKIE_AGE)
 
 

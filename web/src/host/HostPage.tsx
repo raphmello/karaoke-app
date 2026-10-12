@@ -154,7 +154,7 @@ function Room({ room, onGone }: { room: RoomInfo; onGone: () => void }) {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <OpenTvButton code={room.code} className="rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700" />
+            <OpenTvButton room={room} className="rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700" />
             <DeleteRoomButton code={room.code} onDeleted={onGone} />
           </div>
         </div>

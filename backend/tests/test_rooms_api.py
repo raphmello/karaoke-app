@@ -162,26 +162,29 @@ def test_each_room_has_its_own_queue(host, code, stranger):
     assert len(host.get(f"/api/rooms/{code}/queue").json()) == 1
 
 
-def test_only_the_owner_and_the_admin_open_a_rooms_tv(host, code, stranger):
+def test_the_password_the_owner_and_the_admin_open_a_rooms_tv(host, code, stranger):
     owner = stranger()
     owner.post(f"/api/rooms/{code}/join", json={"nickname": "Cris"})
     locked = owner.post("/api/rooms", json={"name": "Da Cris", "password": "abc"}).json()["code"]
     public = owner.post("/api/rooms", json={"name": "Da Cris, aberta"}).json()["code"]
-    for room in (locked, public):
-        assert owner.post(f"/api/rooms/{room}/tv").status_code == 204
-        assert owner.get(f"/api/rooms/{room}").json()["tv"]
-    with owner.websocket_connect(f"/ws/rooms/{locked}?role=tv") as ws:
+    assert owner.post(f"/api/rooms/{locked}/tv").status_code == 204  # the owner, without the password
+    assert owner.get(f"/api/rooms/{locked}").json()["tv"]
+    # Anyone with the password, even someone in no room; a wrong one counts against the PIN limit
+    tv = stranger()
+    assert tv.post(f"/api/rooms/{locked}/tv").status_code == 401
+    assert tv.post(f"/api/rooms/{locked}/tv", json={"password": "errada"}).status_code == 401
+    assert tv.post(f"/api/rooms/{locked}/tv", json={"password": "abc"}).status_code == 204
+    assert tv.get(f"/api/rooms/{locked}").json()["tv"]
+    assert not tv.get(f"/api/rooms/{public}").json()["tv"]  # that cookie is for the locked room only
+    assert tv.post(f"/api/rooms/{locked}/player/skip").status_code == 204
+    with tv.websocket_connect(f"/ws/rooms/{locked}?role=tv") as ws:
         receive(ws, "queue.snapshot")
-    # The password is for joining only: a guest who knows it is still not the TV
-    bia = stranger()
-    assert bia.post(f"/api/rooms/{locked}/join", json={"nickname": "Bia", "password": "abc"}).status_code == 200
-    refused = bia.post(f"/api/rooms/{locked}/tv", json={"password": "abc"})
-    assert refused.status_code == 403 and "dono da sala ou o admin" in refused.json()["detail"]
-    assert not bia.get(f"/api/rooms/{locked}").json()["tv"]
-    assert stranger().post(f"/api/rooms/{public}/tv").status_code == 403
+    # A room without a password has nothing to check: anyone opens its TV
+    other = stranger()
+    assert other.post(f"/api/rooms/{public}/tv").status_code == 204
+    assert other.get(f"/api/rooms/{public}").json()["tv"]
     # The admin already is the TV of every room
     assert host.post(f"/api/rooms/{locked}/tv").status_code == 204
-    assert host.get(f"/api/rooms/{public}").json()["tv"]
 
 
 def test_a_room_expires_after_24_hours_and_its_screens_are_told(app, client, host, code, db):

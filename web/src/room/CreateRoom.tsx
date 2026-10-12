@@ -100,7 +100,7 @@ function CreateRoomDialog({
             autoComplete="new-password"
           />
           <span className="text-xs text-zinc-500">
-            Com senha, só entra quem souber. Sem ela, a sala é pública. A TV, só você e o admin abrem.
+            Com senha, só entra e só abre a TV quem souber. Sem ela, a sala é pública.
           </span>
         </label>
         {!asHost && (

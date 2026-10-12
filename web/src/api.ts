@@ -144,7 +144,8 @@ export const api = {
   removeRoom: (code: string) => request<void>(room(code), send("DELETE"), true),
   join: (code: string, nickname: string, password?: string) =>
     request<Guest>(`${room(code)}/join`, send("POST", { nickname, password: password || undefined }), true),
-  roomTv: (code: string) => request<void>(`${room(code)}/tv`, send("POST"), true), // its owner, or the host
+  roomTv: (code: string, password?: string) =>
+    request<void>(`${room(code)}/tv`, send("POST", { password: password || undefined }), true),
   queue: (code: string) => request<QueueEntry[]>(`${room(code)}/queue`),
   add: (code: string, body: { video_id: string; singer_name?: string; semitones: number }) =>
     request<QueueEntry>(`${room(code)}/queue`, send("POST", body)),

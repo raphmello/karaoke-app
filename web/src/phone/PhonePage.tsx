@@ -1,8 +1,9 @@
 // /m/<code>: the guest's phone. Its one tab, "Sala", has the same two sub-tabs as the TV's menu and the host's
 // screen: "Adicionar Música" (search YouTube or the library and add songs, with the key they start in) and "Fila"
 // (follow the queue, change the key of one's own entries, remove them and answer the transcription question).
-// The room's owner also runs its queue and, above it, the player, may delete the room and opens it as the TV ("Abrir
-// como TV"); "Ver salas" goes back to the list.
+// The room's owner also runs its queue and, above it, the player, and may delete the room. "Abrir como TV" makes
+// this phone the room's TV (with the room's password, when it has one and this is not its owner); "Ver salas" goes
+// back to the list.
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, onSessionLost } from "../api";
@@ -67,15 +68,15 @@ export function PhonePage({ code }: { code: string }) {
             Ver salas
           </a>
         </div>
-        {info.data?.manage && (
+        {info.data && (
           <div className="mt-3 flex flex-wrap items-start gap-2">
             <span className="flex-1 [&>span]:w-full">
               <OpenTvButton
-                code={code}
+                room={info.data}
                 className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-center text-sm font-semibold hover:bg-zinc-700"
               />
             </span>
-            <DeleteRoomButton code={code} onDeleted={() => location.assign("/")} />
+            {info.data.manage && <DeleteRoomButton code={code} onDeleted={() => location.assign("/")} />}
           </div>
         )}
         <div className="mt-3 pb-3">

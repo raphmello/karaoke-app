@@ -1,8 +1,9 @@
-// "Abrir como TV" (docs/ARCHITECTURE.md, "Como alguém entra"): only the room's owner and the admin see it. The tap
-// is what the browser needs before it plays sound, so the audio starts right here, and the TV opens in this same
-// page, without a reload, with that audio already on: no "Iniciar" screen.
-import { useState } from "react";
-import { api } from "../api";
+// "Abrir como TV" (docs/ARCHITECTURE.md, "Como alguém entra"): for everyone. In a room with a password, whoever is
+// not its owner nor the admin types the password in a small dialog first. The tap that opens the TV (the button's, or
+// the dialog's "Abrir") is what the browser needs before it plays sound, so the audio starts right there, and the TV
+// opens in this same page, without a reload, with that audio already on: no "Iniciar" screen.
+import { type FormEvent, useEffect, useState } from "react";
+import { api, type RoomInfo } from "../api";
 import { navigate } from "../lib/navigate";
 import { AudioEngine } from "../player/engine";
 
@@ -20,23 +21,39 @@ export function engineTaken(engine: Promise<AudioEngine>): void {
   if (handed?.engine === engine) handed = null;
 }
 
-export function OpenTvButton({ code, className }: { code: string; className: string }) {
+/** Becomes the room's TV and moves to it, from inside a tap. Throws what the API said, with the audio dropped. */
+async function openTv(code: string, password?: string): Promise<void> {
+  const ctx = AudioEngine.context(); // before the first await, while it still counts as the tap
+  try {
+    await api.roomTv(code, password);
+  } catch (e) {
+    void ctx.close().catch(() => undefined);
+    throw e;
+  }
+  handed = { code, engine: AudioEngine.create(ctx) };
+  navigate(`/tv/${code}`);
+}
+
+export function OpenTvButton({ room, className }: { room: RoomInfo; className: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+  // The owner, the admin, a TV of this room already, or a room without a password: nothing to ask
+  const needsPassword = room.protected && !room.manage && !room.tv;
+
   const open = async () => {
-    setBusy(true);
-    setError(null);
-    const ctx = AudioEngine.context(); // before the first await, while it still counts as the tap
-    try {
-      await api.roomTv(code);
-    } catch (e) {
-      void ctx.close().catch(() => undefined);
-      setError((e as Error).message);
-      setBusy(false);
+    if (needsPassword) {
+      setAsking(true);
       return;
     }
-    handed = { code, engine: AudioEngine.create(ctx) };
-    navigate(`/tv/${code}`);
+    setBusy(true);
+    setError(null);
+    try {
+      await openTv(room.code);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
   };
   return (
     <span className="inline-flex flex-col gap-1">
@@ -44,6 +61,71 @@ export function OpenTvButton({ code, className }: { code: string; className: str
         Abrir como TV
       </button>
       {error && <span className="text-sm text-red-400">{error}</span>}
+      {asking && <PasswordDialog room={room} onClose={() => setAsking(false)} />}
     </span>
+  );
+}
+
+function PasswordDialog({ room, onClose }: { room: RoomInfo; onClose: () => void }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await openTv(room.code, password);
+    } catch (e) {
+      setError((e as Error).message);
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
+      onClick={(event) => event.target === event.currentTarget && onClose()}
+    >
+      <form
+        onSubmit={submit}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="open-tv-title"
+        className="flex w-full max-w-sm flex-col gap-4 rounded-2xl bg-zinc-900 p-6 text-left ring-1 ring-zinc-700"
+      >
+        <h2 id="open-tv-title" className="text-xl font-bold">
+          Abrir {room.name ?? `a sala ${room.code}`} como TV
+        </h2>
+        <p className="text-sm text-zinc-400">Digite a senha da sala.</p>
+        <input
+          type="password"
+          autoFocus
+          maxLength={64}
+          className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-base text-zinc-100 outline-none focus:border-amber-400"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+          aria-label="Senha da sala"
+        />
+        {error && <p className="text-sm text-red-400">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" className="rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700" onClick={onClose}>
+            Cancelar
+          </button>
+          <button
+            className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950 disabled:opacity-50"
+            disabled={busy || !password}
+          >
+            Abrir
+          </button>
+        </div>
+      </form>
+    </div>
   );
 }

@@ -1,6 +1,7 @@
-// /tv/<code>: one room's TV (docs/ARCHITECTURE.md, "Salas"). Only the room's owner and the admin open it. From
-// "Abrir como TV" it opens ready, with the audio that tap started; opened by its address or reloaded, it asks for one
-// tap first, since the browser plays no sound before one. Then it plays the room's queue in order.
+// /tv/<code>: one room's TV (docs/ARCHITECTURE.md, "Salas"). Its password, its owner or the admin opens it (anyone,
+// in a room without a password). From "Abrir como TV" it opens ready, with the audio that tap started; opened by its
+// address or reloaded, it asks for one tap first, since the browser plays no sound before one. Then it plays the
+// room's queue in order.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api, onSessionLost, retryWhileRestarting, type QueueEntry, type RoomInfo } from "../api";
@@ -108,9 +109,9 @@ function Centered({ children }: { children: React.ReactNode }) {
   return <main className="flex h-full flex-col items-center justify-center gap-6 px-6 text-center">{children}</main>;
 }
 
-/** This browser is not the room's TV yet. Its owner opens it with one tap; anyone else only with the admin's PIN.
- *  The tap that sends it also starts the audio: the context is made before the first await, while it still counts as
- *  the tap; a refusal throws it away. */
+/** This browser is not the room's TV yet. Its owner, or anyone in a room without a password, opens it with one tap;
+ *  otherwise it takes the room's password, or the admin's PIN. The tap that sends it also starts the audio: the
+ *  context is made before the first await, while it still counts as the tap; a refusal throws it away. */
 function TvAccess({
   room,
   engine,
@@ -122,7 +123,9 @@ function TvAccess({
   onEngine: (engine: AudioEngine) => void;
   onDone: () => void;
 }) {
-  const [pin, setPin] = useState("");
+  const free = room.mine || !room.protected; // nothing to type
+  const [way, setWay] = useState<"password" | "pin">("password");
+  const [secret, setSecret] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -132,8 +135,9 @@ function TvAccess({
     setError(null);
     const ctx = AudioEngine.context();
     try {
-      if (room.mine) await api.roomTv(room.code);
-      else await api.hostLogin(pin);
+      if (free) await api.roomTv(room.code);
+      else if (way === "password") await api.roomTv(room.code, secret);
+      else await api.hostLogin(secret);
     } catch (e) {
       void ctx.close().catch(() => undefined);
       setError((e as Error).message);
@@ -149,31 +153,44 @@ function TvAccess({
     <main className="flex h-full items-center justify-center px-4">
       <form onSubmit={submit} className="flex w-full max-w-sm flex-col gap-4 rounded-2xl bg-zinc-900 p-8">
         <h1 className="text-2xl font-bold">{room.name ?? `Sala ${room.code}`}</h1>
-        {room.mine ? (
-          <p className="text-zinc-400">Esta sala é sua.</p>
+        {free ? (
+          room.mine && <p className="text-zinc-400">Esta sala é sua.</p>
         ) : (
           <>
-            <p className="text-zinc-400">Só o dono da sala ou o admin abrem a TV desta sala.</p>
+            <p className="text-zinc-400">{way === "password" ? "Digite a senha da sala." : "Digite o PIN do admin."}</p>
             <input
               type="password"
-              inputMode="numeric"
+              inputMode={way === "pin" ? "numeric" : undefined}
               autoFocus
+              maxLength={64}
               className="rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-xl outline-none focus:border-amber-400"
-              value={pin}
-              onChange={(event) => setPin(event.target.value)}
-              placeholder="PIN do admin"
-              aria-label="PIN do admin"
+              value={secret}
+              onChange={(event) => setSecret(event.target.value)}
+              aria-label={way === "password" ? "Senha da sala" : "PIN do admin"}
             />
           </>
         )}
         {error && <p className="text-red-400">{error}</p>}
         <button
           className="rounded-lg bg-amber-400 px-4 py-3 text-lg font-bold text-zinc-950 disabled:opacity-50"
-          disabled={busy || (!room.mine && !pin)}
-          autoFocus={room.mine}
+          disabled={busy || (!free && !secret)}
+          autoFocus={free}
         >
-          {room.mine ? "Toque para começar" : "Entrar como admin"}
+          {free ? "Toque para começar" : "Abrir"}
         </button>
+        {!free && (
+          <button
+            type="button"
+            className="text-sm text-zinc-400 underline hover:text-zinc-200"
+            onClick={() => {
+              setWay(way === "password" ? "pin" : "password");
+              setSecret("");
+              setError(null);
+            }}
+          >
+            {way === "password" ? "Usar o PIN do admin" : "Usar a senha da sala"}
+          </button>
+        )}
         <RoomsLink />
       </form>
     </main>

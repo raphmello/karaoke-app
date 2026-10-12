@@ -19,7 +19,7 @@ export function RoomsPage() {
           <h1 className="text-2xl font-bold">Salas de karaokê</h1>
           <p className="text-sm text-zinc-400">
             No celular, use <span className="font-semibold text-zinc-200">Entrar na sala</span>. No aparelho ligado à
-            TV, o dono da sala ou o admin usa <span className="font-semibold text-zinc-200">Abrir como TV</span>.
+            TV, use <span className="font-semibold text-zinc-200">Abrir como TV</span>.
           </p>
         </div>
         {/* Anyone makes a room and becomes its owner; the admin makes it as no one's */}
@@ -70,10 +70,8 @@ function RoomCard({ room, isHost }: { room: RoomInfo; isHost: boolean }) {
         <a className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950" href={enter}>
           {isHost ? "Gerenciar" : "Entrar na sala"}
         </a>
-        {/* The TV: only the room's owner and the admin */}
-        {room.manage && (
-          <OpenTvButton code={room.code} className="rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700" />
-        )}
+        {/* The TV: for everyone; in a room with a password, whoever is not its owner nor the admin types it */}
+        <OpenTvButton room={room} className="rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700" />
         {room.manage && (
           <span className="ml-auto">
             <DeleteRoomButton code={room.code} />

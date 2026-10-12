@@ -126,6 +126,10 @@ class RoomInfoOut(RoomOut):
     joined: bool  # the caller is in it already (the host, or a guest of it)
 
 
+class RoomTvIn(BaseModel):
+    password: str | None = Field(default=None, max_length=64)  # when the room has one and the caller is not its owner
+
+
 class JoinIn(BaseModel):
     nickname: str = Field(min_length=1, max_length=40)
     password: str | None = Field(default=None, max_length=64)  # when the room has one
