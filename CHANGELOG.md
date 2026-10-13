@@ -2,6 +2,12 @@
 
 As mudanças de cada release do Karaokê, da mais nova para a mais antiga. As versões seguem o formato `ANO.MAJOR.MINOR`, e cada release tem um branch `release/<versão>` e uma tag `v<versão>`.
 
+## [2026.1.8] - 2026-10-13
+
+### Documentação
+
+- A arquitetura registra a decisão sobre o acesso de fora de casa: Cloudflare Tunnel nomeado, com domínio próprio. A questão ainda aparecia como em aberto, embora a fase 2 já esteja concluída assim.
+
 ## [2026.1.7] - 2026-10-12
 
 ### Correções
