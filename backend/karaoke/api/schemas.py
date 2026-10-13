@@ -1,7 +1,7 @@
 """Request and response bodies of the REST API (docs/ARCHITECTURE.md, "API REST")."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -41,14 +41,19 @@ class SongOut(BaseModel):
     def of(cls, song: Song, original: str | None = None) -> SongOut:
         """`original` is the file name of the downloaded audio, when the caller looked it up on disk."""
         base = f"/media/{song.video_id}"
+        # The browser keeps /media for a day: the version (when the song last became ready) changes the address
+        # after a reprocess, so the TV takes the new audio and lyrics instead of its old copy
+        # SQLite gives the time back without its zone, and it is UTC
+        ready = song.ready_at.replace(tzinfo=song.ready_at.tzinfo or UTC) if song.ready_at else None
+        version = f"?v={int(ready.timestamp())}" if ready else ""
         media = None
         if song.status == READY:
             media = Media(
-                instrumental=f"{base}/play/instrumental.opus",
-                vocals=f"{base}/play/vocals.opus",
-                lyrics=f"{base}/lyrics/aligned.json",
-                thumb=f"{base}/thumb.jpg",
-                original=f"{base}/{original}" if original else None,
+                instrumental=f"{base}/play/instrumental.opus{version}",
+                vocals=f"{base}/play/vocals.opus{version}",
+                lyrics=f"{base}/lyrics/aligned.json{version}",
+                thumb=f"{base}/thumb.jpg{version}",
+                original=f"{base}/{original}{version}" if original else None,
             )
         return cls(
             video_id=song.video_id,

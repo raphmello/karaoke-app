@@ -68,7 +68,8 @@ export function PlayerScreen({
   upNext?: ReactNode; // who sings next, in a corner over the lyrics
 }) {
   const media = song.media!;
-  const lyrics = useQuery({ queryKey: ["lyrics", song.video_id], queryFn: () => fetchLyrics(media.lyrics) });
+  // Keyed by the address, which carries the song's version: a reprocessed song brings its new lyrics
+  const lyrics = useQuery({ queryKey: ["lyrics", media.lyrics], queryFn: () => fetchLyrics(media.lyrics) });
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);

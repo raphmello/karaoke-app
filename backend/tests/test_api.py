@@ -1,5 +1,6 @@
 """The REST API of phase 2, through FastAPI's test client, with a stand-in YouTube search."""
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -200,6 +201,15 @@ def test_a_song_shows_its_status_and_media(app, client, db):
     assert song["status"] == "ready"
     assert song["media"]["instrumental"] == f"/media/{VIDEO}/play/instrumental.opus"
     assert song["media"]["lyrics"] == f"/media/{VIDEO}/lyrics/aligned.json"
+
+    # The browser keeps /media for a day: a reprocess (a new ready_at) gives new addresses, so the TV refetches
+    for ready_at, version in [(datetime(2026, 10, 12, 21, 29, 50, tzinfo=UTC), 1791840590),
+                              (datetime(2026, 10, 13, 0, 54, 49, tzinfo=UTC), 1791852889)]:
+        with transaction(db) as session:
+            session.get(Song, VIDEO).ready_at = ready_at
+        media = phone.get(f"/api/songs/{VIDEO}").json()["media"]
+        assert media["lyrics"] == f"/media/{VIDEO}/lyrics/aligned.json?v={version}"
+        assert media["vocals"] == f"/media/{VIDEO}/play/vocals.opus?v={version}"
 
 
 def test_the_library_lists_only_ready_songs(app, client, db):
