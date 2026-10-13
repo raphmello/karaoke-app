@@ -2,6 +2,13 @@
 
 As mudanças de cada release do Karaokê, da mais nova para a mais antiga. As versões seguem o formato `ANO.MAJOR.MINOR`, e cada release tem um branch `release/<versão>` e uma tag `v<versão>`.
 
+## [2026.1.7] - 2026-10-12
+
+### Correções
+
+- **Letra fora de sincronia no início:** quando o LRC põe uma linha num trecho em que ninguém canta (em Battle Symphony, a primeira linha a 2 s, numa introdução só instrumental), o alinhamento confere cada linha contra a voz isolada e leva essa linha para onde o canto começa, antes da linha seguinte. No acervo, isso corrige a primeira linha de Battle Symphony (agora a 27,8 s) e a do Numb em 4K (agora a 22,85 s); nenhuma linha das outras 23 músicas muda. Para as músicas já processadas, reprocesse a etapa de alinhamento.
+- **Música reprocessada não chegava à TV:** o navegador guardava o áudio e a letra por um dia no mesmo endereço, e a TV continuava com a cópia antiga depois de um reprocessamento. Agora os endereços levam a versão da música, e a TV busca os arquivos novos assim que a música fica pronta de novo.
+
 ## [2026.1.6] - 2026-10-12
 
 ### Novidades
