@@ -489,7 +489,7 @@ Todas foram respondidas. O túnel escolhido foi o Cloudflare Tunnel nomeado, com
 - [x] Ordem da fila: chegada pura, ou rodízio por cantor, em que ninguém canta duas vezes antes de todos cantarem uma? Decisão: chegada pura.
 - [x] Limite de músicas pendentes por convidado? Decisão: sem limite.
 - [x] A próxima música começa sozinha ou sempre pelo host? Decisão: começa sozinha.
-- [ ] Fase 2 com domínio próprio na Cloudflare ou com Tailscale Funnel? Cloudflare é a preferida, mas a decisão fica para quando a fase 2 começar. A fase 2 não será executada agora.
+- [x] Fase 2 com domínio próprio na Cloudflare ou com Tailscale Funnel? Decisão: Cloudflare Tunnel nomeado, com domínio próprio.
 - [x] Quantos GB de VRAM a GPU tem? Decisão: 8 GB, então o worker carrega um modelo por vez.
 - [x] Vídeo original sem som ao fundo da letra numa v2? Decisão: não, para poupar o armazenamento local.
 - [x] Ao marcar uma música como removida, apagar os áudios ou mantê-los? Decisão: manter, para poder desfazer a remoção sem reprocessar.
