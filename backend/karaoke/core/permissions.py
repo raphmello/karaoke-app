@@ -71,8 +71,7 @@ class Action(StrEnum):
     PLAYER = "player"  # play, pause, skip
     PLAYER_SETTINGS = "player_settings"  # guide voice and the TV's delay
     REPROCESS = "reprocess"  # change the lyrics or redo stages
-    REMOVE_SONG = "remove_song"  # mark a library song as removed
-    RESTORE_SONG = "restore_song"
+    REMOVE_SONG = "remove_song"  # remove a song from the library, deleting its files
 
 
 GUEST = {Action.ADD, Action.CREATE_ROOM}

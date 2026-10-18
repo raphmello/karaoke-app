@@ -159,14 +159,14 @@ export const api = {
     request<void>(`${room(code)}/player/${action}`, send("POST")),
   playerValue: (code: string, action: "guide" | "delay", value: number) =>
     request<void>(`${room(code)}/player/${action}`, send("POST", { value })),
-  library: (q: string, removed = false) =>
-    request<Song[]>(`/api/library?q=${encodeURIComponent(q)}${removed ? "&removed=true" : ""}`),
+  library: (q: string) => request<Song[]>(`/api/library?q=${encodeURIComponent(q)}`),
   replaceLyrics: (videoId: string, text: string) => request<void>(`${song(videoId)}/lyrics`, send("PUT", { text })),
   reprocess: (videoId: string, stages: string[]) =>
     request<{ stages: string[] }>(`${song(videoId)}/reprocess`, send("POST", { stages })),
-  removeSong: (videoId: string) => request<void>(song(videoId), send("DELETE")),
-  restoreSong: (videoId: string) => request<void>(`${song(videoId)}/restore`, send("POST")),
-  purgeSong: (videoId: string) => request<{ freed_bytes: number }>(`${song(videoId)}/purge`, send("POST")),
+  // Out of the library for good: its files leave the disk; added again, it is prepared from scratch
+  removeSong: (videoId: string) => request<{ freed_bytes: number }>(song(videoId), send("DELETE")),
+  // The songs removed the old way, whose files stayed, deleted at once
+  purgeRemoved: () => request<{ songs: number; freed_bytes: number }>("/api/songs/purge-removed", send("POST")),
   history: (videoId: string) => request<SongEvent[]>(`${song(videoId)}/history`),
   jobs: () => request<Job[]>("/api/jobs"),
   // Whether this browser is the host's: the jobs panel answers the host alone (the active room answers the TV too)

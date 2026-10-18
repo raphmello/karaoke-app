@@ -1,4 +1,5 @@
-// The host's library: change the lyrics, reprocess stages, remove and restore songs, and see their history.
+// The host's library: change the lyrics, reprocess stages, remove songs for good (their files leave the disk)
+// and see their history.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, type Song } from "../api";
@@ -12,8 +13,7 @@ type Panel = "lyrics" | "reprocess" | "history" | null;
 
 export function LibraryAdmin() {
   const [q, setQ] = useState("");
-  const [removed, setRemoved] = useState(false);
-  const songs = useQuery({ queryKey: ["library", q, removed], queryFn: () => api.library(q, removed) });
+  const songs = useQuery({ queryKey: ["library", q], queryFn: () => api.library(q) });
 
   return (
     <section className="flex flex-col gap-4">
@@ -24,13 +24,9 @@ export function LibraryAdmin() {
           value={q}
           onChange={(event) => setQ(event.target.value)}
         />
-        <label className="flex items-center gap-2 text-sm text-zinc-300">
-          <input type="checkbox" checked={removed} onChange={(event) => setRemoved(event.target.checked)} />
-          Mostrar removidas
-        </label>
       </div>
       {songs.isError && <p className="text-red-400">{songs.error.message}</p>}
-      {songs.data?.length === 0 && <p className="text-zinc-400">Nenhuma música {removed ? "removida" : "no acervo"}.</p>}
+      {songs.data?.length === 0 && <p className="text-zinc-400">Nenhuma música no acervo.</p>}
       <ul className="flex flex-col gap-3">
         {songs.data?.map((song) => <SongRow key={song.video_id} song={song} />)}
       </ul>
@@ -48,7 +44,6 @@ function SongRow({ song }: { song: Song }) {
   const [panel, setPanel] = useState<Panel>(null);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const key = parseKey(song.original_key);
-  const removed = song.status === "removed";
 
   const run = async (action: () => Promise<unknown>, done: string) => {
     setMessage(null);
@@ -80,39 +75,23 @@ function SongRow({ song }: { song: Song }) {
         </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
-        {removed ? (
-          <>
-            <button className={small} onClick={() => run(() => api.restoreSong(song.video_id), "Remoção desfeita.")}>
-              Desfazer remoção
-            </button>
-            <ConfirmButton
-              className={`${small} text-red-300`}
-              label="Apagar de vez"
-              confirmLabel={`Apagar de vez e liberar ${megabytes(song.disk_bytes)} (não dá para desfazer)`}
-              onConfirm={() =>
-                void run(async () => {
-                  await api.purgeSong(song.video_id);
-                  void queryClient.invalidateQueries({ queryKey: ["disk"] });
-                }, "")
-              }
-            />
-          </>
-        ) : (
-          <>
-            <button className={small} onClick={() => toggle("lyrics")}>
-              Trocar letra
-            </button>
-            <button className={small} onClick={() => toggle("reprocess")}>
-              Reprocessar
-            </button>
-            <ConfirmButton
-              className={`${small} text-red-300`}
-              label="Remover"
-              confirmLabel="Remover do acervo (arquivos e histórico ficam)"
-              onConfirm={() => void run(() => api.removeSong(song.video_id), "Música removida do acervo.")}
-            />
-          </>
-        )}
+        <button className={small} onClick={() => toggle("lyrics")}>
+          Trocar letra
+        </button>
+        <button className={small} onClick={() => toggle("reprocess")}>
+          Reprocessar
+        </button>
+        <ConfirmButton
+          className={`${small} text-red-300`}
+          label="Remover"
+          confirmLabel={`Remover e liberar ${megabytes(song.disk_bytes)} (não dá para desfazer)`}
+          onConfirm={() =>
+            void run(async () => {
+              await api.removeSong(song.video_id);
+              void queryClient.invalidateQueries({ queryKey: ["disk"] });
+            }, "")
+          }
+        />
         <button className={small} onClick={() => toggle("history")}>
           Histórico
         </button>

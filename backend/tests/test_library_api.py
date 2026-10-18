@@ -1,4 +1,4 @@
-"""Phase 5 through the API: the host's lyrics, reprocessing, removal and restore, history, the panel, and the
+"""Phase 5 through the API: the host's lyrics, reprocessing, removal (for good), history, the panel, and the
 player's guide voice, delay and skip between songs."""
 import json
 
@@ -48,11 +48,10 @@ def test_redoing_a_stage_redoes_what_reads_it():
     ("put", f"/api/songs/{VIDEO}/lyrics", {"text": "la la"}),
     ("post", f"/api/songs/{VIDEO}/reprocess", {"stages": []}),
     ("delete", f"/api/songs/{VIDEO}", None),
-    ("post", f"/api/songs/{VIDEO}/restore", None),
+    ("post", "/api/songs/purge-removed", None),
     ("get", f"/api/songs/{VIDEO}/history", None),
     ("get", "/api/jobs", None),
     ("get", "/api/disk", None),
-    ("get", "/api/library?removed=true", None),
 ])
 def test_only_the_host(phone, code, db, settings, method, path, body):
     make_song(db, settings)
@@ -107,69 +106,64 @@ def test_a_failed_song_is_tried_again(host, code, db, settings):
     assert song(db).status == "pending"
 
 
-# --- removal, restore, history -------------------------------------------------------------------------------------
+# --- removal, history ----------------------------------------------------------------------------------------------
 
-def test_removing_a_song_takes_its_entries_out_and_restoring_needs_no_processing(phone, host, code, db, settings):
-    make_song(db, settings)
-    ana = phone(code, "Ana")
-    entry = ana.post(f"/api/rooms/{code}/queue", json={"video_id": VIDEO}).json()["id"]
-
-    assert host.delete(f"/api/songs/{VIDEO}").status_code == 204
-    assert (song(db).status, song(db).removed_reason) == ("removed", "host")
-    with db() as session:
-        assert session.get(QueueEntry, entry).status == "removed"
-    assert [s["video_id"] for s in host.get("/api/library").json()] == []
-    assert [s["video_id"] for s in host.get("/api/library?removed=true").json()] == [VIDEO]
-    assert host.delete(f"/api/songs/{VIDEO}").status_code == 409
-
-    assert host.post(f"/api/songs/{VIDEO}/restore").status_code == 204
-    assert song(db).status == "ready"
-    assert jobs(db) == []  # the files were kept: nothing runs
-    assert host.post(f"/api/songs/{VIDEO}/restore").status_code == 409
-
-    events = host.get(f"/api/songs/{VIDEO}/history").json()
-    assert [(e["kind"], e["by"]) for e in events] == [("removed", "host"), ("reactivated", "host")]
-
-
-def test_a_removed_song_is_deleted_for_good_to_free_the_disk(phone, host, code, db, settings):
+def test_removing_a_song_deletes_it_for_good_and_takes_its_entries_out(phone, host, code, db, settings):
     make_song(db, settings)
     folder = SongFolder(settings.media_dir, VIDEO).root
     (folder / "stems.flac").write_bytes(b"x" * 5000)
-    purge = f"/api/songs/{VIDEO}/purge"
-    assert host.post(purge).status_code == 409  # only a removed song
-    assert phone(code, "Ana").post(purge).status_code in (401, 403)  # only the host
+    ana = phone(code, "Ana")
+    entry = ana.post(f"/api/rooms/{code}/queue", json={"video_id": VIDEO}).json()["id"]
+    assert ana.get("/api/library").json()[0]["disk_bytes"] is None  # the sizes are the admin's
+    assert host.get("/api/library").json()[0]["disk_bytes"] >= 5000  # what removing frees, said before it is asked
 
-    host.delete(f"/api/songs/{VIDEO}")
-    listed = host.get("/api/library?removed=true").json()
-    assert listed[0]["disk_bytes"] >= 5000  # said before it is asked
-    freed = host.post(purge)
-    assert freed.status_code == 200 and freed.json()["freed_bytes"] >= 5000
+    removed = host.delete(f"/api/songs/{VIDEO}")
+    assert removed.status_code == 200 and removed.json()["freed_bytes"] >= 5000
     assert not folder.exists()
-    assert song(db).status == "purged"
-    assert host.get("/api/library?removed=true").json() == []  # out of the removed list too
+    assert (song(db).status, song(db).removed_reason) == ("purged", "host")
+    with db() as session:
+        assert session.get(QueueEntry, entry).status == "removed"
+    assert host.get("/api/library").json() == []
     assert host.get("/api/disk").json()["songs"] == 0
-    assert host.post(f"/api/songs/{VIDEO}/restore").status_code == 409  # no files to bring back
-    assert host.post(purge).status_code == 409
-    assert [e["kind"] for e in host.get(f"/api/songs/{VIDEO}/history").json()] == ["removed", "purged"]
+    assert host.delete(f"/api/songs/{VIDEO}").status_code == 409
+    assert host.post(f"/api/songs/{VIDEO}/restore").status_code in (404, 405)  # no undo any more
+    assert [(e["kind"], e["by"]) for e in host.get(f"/api/songs/{VIDEO}/history").json()][-1] == ("purged", "host")
 
     # Added again, it is prepared from scratch, like a new one
     assert phone(code, "Bia").post(f"/api/rooms/{code}/queue", json={"video_id": VIDEO}).status_code == 201
     assert song(db).status == "pending" and len(jobs(db)) == 1
 
 
-def test_a_song_in_a_queue_or_being_prepared_is_never_deleted_for_good(phone, host, code, db, settings):
-    make_song(db, settings, status="removed")
+def test_a_song_playing_or_being_prepared_is_never_removed(phone, host, code, db, settings):
+    make_song(db, settings)
     with db() as session:
         room_id = session.scalar(select(Room.id).where(Room.code == code))
     with transaction(db) as session:
         session.add(QueueEntry(room_id=room_id, video_id=VIDEO, position=1, status="playing"))
-    assert host.post(f"/api/songs/{VIDEO}/purge").status_code == 409
+    answer = host.delete(f"/api/songs/{VIDEO}")
+    assert answer.status_code == 409 and "tocando" in answer.json()["detail"]
     with transaction(db) as session:
         session.query(QueueEntry).delete()
         session.add(Job(video_id=VIDEO, status="running"))
-    answer = host.post(f"/api/songs/{VIDEO}/purge")
+    answer = host.delete(f"/api/songs/{VIDEO}")
     assert answer.status_code == 409 and "preparada" in answer.json()["detail"]
     assert SongFolder(settings.media_dir, VIDEO).root.exists()
+    assert song(db).status == "ready"
+
+
+def test_the_songs_removed_the_old_way_are_deleted_from_the_panel(phone, host, code, db, settings):
+    make_song(db, settings, status="removed")
+    make_song(db, settings, OTHER, status="removed")
+    (SongFolder(settings.media_dir, VIDEO).root / "stems.flac").write_bytes(b"x" * 5000)
+    with transaction(db) as session:  # one is being prepared again: it stays
+        session.add(Job(video_id=OTHER, status="running"))
+    assert phone(code, "Ana").post("/api/songs/purge-removed").status_code in (401, 403)
+
+    answer = host.post("/api/songs/purge-removed").json()
+    assert answer["songs"] == 1 and answer["freed_bytes"] >= 5000
+    assert song(db).status == "purged" and song(db, OTHER).status == "removed"
+    assert not SongFolder(settings.media_dir, VIDEO).root.exists()
+    assert host.get("/api/disk").json()["removed_songs"] == 1
 
 
 def test_history_names_who_did_it(phone, host, code, db, settings):

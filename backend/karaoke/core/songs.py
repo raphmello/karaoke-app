@@ -341,60 +341,73 @@ def replace_lyrics(session: Session, settings: Settings, song: Song, text: str) 
     song.status, song.error, song.lyrics_source = PENDING, None, "manual"
 
 
-def remove_song(session: Session, song: Song, by: str) -> None:
-    """Logical removal from the library: the row, the files and the history stay. Its entries waiting in the queue
-    leave it too; one that is playing finishes."""
-    if song.status in (REMOVED, PURGED):
-        raise QueueError("A música já está removida.")
-    song.status, song.removed_at, song.removed_reason = REMOVED, utcnow(), BY_HOST
-    session.execute(
-        update(QueueEntry)
-        .where(QueueEntry.video_id == song.video_id, QueueEntry.status.in_((QUEUED, AWAITING_DECISION)))
-        .values(status=REMOVED, removed_reason=BY_HOST, ended_at=utcnow())
+def busy(session: Session, video_id: str) -> str | None:
+    """Why a song's files cannot go now: it is being prepared, or it is playing. None when they can."""
+    preparing = session.scalar(
+        select(Job.id).where(Job.video_id == video_id, Job.status.in_((JOB_PENDING, JOB_RUNNING))).limit(1)
     )
-    record(session, song.video_id, "removed", by, {"reason": BY_HOST})
-
-
-def restore_song(session: Session, settings: Settings, song: Song, by: str) -> None:
-    if song.status == PURGED:
-        raise QueueError("A música foi apagada de vez. Para cantar de novo, adicione-a outra vez.")
-    if song.status != REMOVED:
-        raise QueueError("A música não está removida.")
-    reactivate(session, settings, song, by)
-
-
-def purge_song(session: Session, settings: Settings, song: Song, by: str) -> int:
-    """Deletes a removed song's files for good, to free the disk (docs/ARCHITECTURE.md, "Apagar de vez"): its whole
-    folder. The row stays, as purged, so the history still counts it; added again, the song is prepared from scratch.
-    Never a song in a queue or being prepared. Returns the bytes freed."""
-    if song.status == PURGED:
-        raise QueueError("A música já foi apagada de vez.")
-    if song.status != REMOVED:
-        raise QueueError("Remova a música do acervo antes de apagá-la de vez.")
-    busy = session.scalar(
-        select(Job.id).where(Job.video_id == song.video_id, Job.status.in_((JOB_PENDING, JOB_RUNNING))).limit(1)
-    )
-    if busy is not None:
-        raise QueueError("A música está sendo preparada; apague de vez quando terminar.")
-    queued = session.scalar(
+    if preparing is not None:
+        return "A música está sendo preparada; remova quando terminar."
+    playing = session.scalar(
         select(QueueEntry.id)
         .join(Room, Room.id == QueueEntry.room_id)
-        .where(*open_rooms(), QueueEntry.video_id == song.video_id, QueueEntry.status.in_(ACTIVE_ENTRY))
+        .where(*open_rooms(), QueueEntry.video_id == video_id, QueueEntry.status == PLAYING)
         .limit(1)
     )
-    if queued is not None:
-        raise QueueError("A música ainda está numa fila.")
-    folder = SongFolder(settings.media_dir, song.video_id).root
+    if playing is not None:
+        return "A música está tocando agora; remova quando terminar."
+    return None
+
+
+def delete_files(settings: Settings, video_id: str) -> int:
+    """The song's whole folder, gone from the disk. Returns the bytes freed."""
+    folder = SongFolder(settings.media_dir, video_id).root
     freed = sum(path.stat().st_size for path in folder.rglob("*") if path.is_file()) if folder.exists() else 0
     try:
         shutil.rmtree(folder)
     except FileNotFoundError:
         pass
-    except OSError as exc:  # a file in use: the song stays removed, and it can be tried again
+    except OSError as exc:  # a file in use: the song stays, and it can be tried again
         raise QueueError(f"Não deu para apagar todos os arquivos ({exc}). Tente de novo.") from exc
-    song.status, song.stage, song.error, song.ready_at = PURGED, None, None, None
-    record(session, song.video_id, "purged", by, {"freed_bytes": freed})
     return freed
+
+
+def purged(session: Session, song: Song, by: str, freed: int) -> None:
+    """The row stays, as purged, so the history of the nights still counts it; added again, it starts over."""
+    song.status, song.stage, song.error, song.ready_at = PURGED, None, None, None
+    song.removed_at, song.removed_reason = utcnow(), BY_HOST
+    record(session, song.video_id, "purged", by, {"freed_bytes": freed})
+
+
+def remove_song(session: Session, settings: Settings, song: Song, by: str) -> int:
+    """Removing from the library deletes the song for good (docs/ARCHITECTURE.md, "Remover do acervo apaga de vez"): its files leave the disk,
+    and its entries waiting in the queues leave them. Never a song playing or being prepared. Returns the bytes
+    freed."""
+    if song.status == PURGED:
+        raise QueueError("A música já foi removida.")
+    if reason := busy(session, song.video_id):
+        raise QueueError(reason)
+    freed = delete_files(settings, song.video_id)
+    session.execute(
+        update(QueueEntry)
+        .where(QueueEntry.video_id == song.video_id, QueueEntry.status.in_((QUEUED, AWAITING_DECISION)))
+        .values(status=REMOVED, removed_reason=BY_HOST, ended_at=utcnow())
+    )
+    purged(session, song, by, freed)
+    return freed
+
+
+def purge_removed(session: Session, settings: Settings, by: str) -> tuple[int, int]:
+    """The songs removed the old way, whose files stayed: all deleted for good at once, but for one playing or being
+    prepared. Returns how many and the bytes freed."""
+    count = freed = 0
+    for song in session.scalars(select(Song).where(Song.status == REMOVED)).all():
+        if busy(session, song.video_id):
+            continue
+        gone = delete_files(settings, song.video_id)
+        purged(session, song, by, gone)
+        count, freed = count + 1, freed + gone
+    return count, freed
 
 
 def hold_for_decision(session: Session, video_id: str) -> list[int]:

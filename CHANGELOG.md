@@ -2,6 +2,14 @@
 
 As mudanças de cada release do Karaokê, da mais nova para a mais antiga. As versões seguem o formato `ANO.MAJOR.MINOR`, e cada release tem um branch `release/<versão>` e uma tag `v<versão>`.
 
+## [2026.1.10] - 2026-10-18
+
+### Mudanças
+
+- **Remover, no acervo, apaga de vez:** a pasta da música sai do disco, e a confirmação diz quanto libera ("Remover e liberar 55 MB (não dá para desfazer)"). O histórico fica; adicionada de novo, a música é preparada do zero. Uma música tocando numa sala ou sendo preparada não é removida, e o app diz por quê.
+- Saíram o "Mostrar removidas", o "Desfazer remoção" e o "Apagar de vez" separado, e com eles `GET /api/library?removed=true`, `POST /api/songs/{video_id}/restore` e `POST /api/songs/{video_id}/purge`. `DELETE /api/songs/{video_id}` devolve os bytes liberados.
+- **Removidas antes desta versão:** continuam ocupando o disco até o host apagá-las, de uma vez, no Painel → Disco → **Apagar de vez**.
+
 ## [2026.1.9] - 2026-10-18
 
 ### Novidades

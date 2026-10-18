@@ -48,7 +48,7 @@ As escolhas priorizam um único PC com GPU, sem custo recorrente e sem reprocess
 | 10 | Execução | Docker Compose com GPU via WSL2 | Isola CUDA, ffmpeg, Rubber Band e Deno; um comando sobe tudo |
 | 11 | Acesso remoto | Cloudflare Tunnel nomeado, com domínio próprio na Cloudflare; Tailscale só para administrar o PC | Convidados não instalam nada; downloads continuam saindo do IP de casa |
 | 12 | Letra ausente | Perguntar ao dono antes de baixar qualquer coisa | Nada pesado roda para uma música que ninguém quer transcrever |
-| 13 | Remoção de músicas | Lógica: `status = removed`, arquivos mantidos e eventos em `song_events`. Uma música removida pode ser apagada de vez pelo host, para liberar o disco | A remoção pode ser desfeita sem reprocessar, e fica o histórico de quem recusou ou removeu, e quando; apagar de vez é uma escolha à parte, com confirmação |
+| 13 | Remoção de músicas | Remover do acervo apaga de vez a pasta da música, com confirmação que diz o quanto libera; a linha fica em `songs` como `purged`, e os eventos em `song_events` | Libera o disco, que é o motivo de remover; fica o histórico de quem recusou ou removeu, e quando. Adicionada de novo, a música é preparada do zero |
 | 14 | Salas | Várias ao mesmo tempo, cada uma com a sua fila e o acervo único; criadas por qualquer pessoa que abre o app, com senha opcional, e expiram 24 h depois de criadas | Grupos diferentes usam o mesmo PC sem misturar filas, e o processamento de cada música serve a todos; a senha impede estranhos numa sala exposta na internet |
 
 ## Stack tecnológica
@@ -209,9 +209,9 @@ flowchart TB
 
 Só um "sim" libera o download; um "não" de todos os donos deixa a música como removida sem nenhum processamento.
 
-**Remoção é sempre lógica.** Nenhuma música é apagada: a linha em `songs` fica com `status = removed`, data e motivo, cada passo é registrado em `song_events`, e os arquivos continuam no armazenamento. Assim o host pode desfazer a remoção sem reprocessar nada.
+**Remover do acervo apaga de vez.** "Remover", no acervo, pede confirmação dizendo o quanto libera ("Remover e liberar 55 MB (não dá para desfazer)") e tira do disco a pasta inteira da música. A linha fica em `songs` com `status = purged`, data e motivo, e cada passo é registrado em `song_events`, para o histórico continuar; adicionada de novo à fila, a música é preparada do zero, como uma nova. As entradas que esperam nas filas saem delas; uma música tocando agora numa sala aberta, ou sendo preparada, não é removida (o app pede para remover quando terminar). Não há mais lista de removidas nem "Desfazer remoção". O status `removed` continua só para a música cuja transcrição todos recusaram, que nada baixou.
 
-**Apagar de vez, para liberar o disco.** Na lista de removidas, cada música ganha "Apagar de vez", que diz o quanto libera (cerca de 50 a 60 MB por música) e pede confirmação. A pasta da música sai do disco inteira; a linha fica em `songs` com `status = purged`, para o histórico continuar, e sai do acervo e da lista de removidas. Só para uma música removida, nunca para uma que esteja em alguma fila ou sendo preparada. Uma música apagada de vez não volta pelo "Desfazer remoção": adicionada de novo à fila, é preparada do zero, como uma nova.
+**As removidas do jeito antigo**, de antes desta regra, ainda ocupam o disco: no Painel → Disco, a linha "Removidas" ganha "Apagar de vez", que diz o quanto libera, pede confirmação e apaga de uma vez todas as músicas `removed` que não estão tocando nem sendo preparadas.
 
 Se a transcrição autorizada falhar, a música fica pronta como "sem letra" e o dono é avisado.
 
@@ -276,7 +276,7 @@ Formato de `aligned.json` (tempos em segundos):
 - Volume Docker nomeado, no disco ext4 do WSL2, em vez de uma pasta do Windows. É mais rápido e diferencia maiúsculas de minúsculas: IDs do YouTube diferenciam, o NTFS não, e dois vídeos poderiam cair na mesma pasta.
 - O armazenamento é autossuficiente: um comando `rebuild-index` recria a tabela `songs` a partir dos manifests.
 - Só o tom original é guardado; a mudança de tom acontece ao vivo, na TV.
-- Música marcada como removida mantém todos os arquivos, para que a remoção possa ser desfeita sem reprocessar, até o host apagá-la de vez.
+- Música removida do acervo perde a pasta inteira (o registro em `songs` e o histórico ficam).
 - Backup por script que compacta o volume.
 
 **Espaço estimado** para uma música de 4 minutos: cerca de 65 MB (original ~4 MB, dois FLAC ~25 MB cada, dois Opus ~5 MB cada), em qualquer tom. Mil músicas ocupam perto de 65 GB, além de ~5 GB fixos dos modelos em `models/`.
@@ -308,9 +308,7 @@ Várias salas ficam abertas ao mesmo tempo, cada uma com a sua fila, e o acervo 
 | Tocar, pausar, pular | Não | Sim | Não | Não | Sim | Sim |
 | Ajustar voz guia e atraso da TV | Não | Sim | Não | Não | Não | Sim |
 | Trocar letra ou reprocessar etapas | Não | Não | Não | Não | Não | Sim |
-| Marcar música do acervo como removida | Não | Não | Não | Não | Não | Sim |
-| Desfazer a remoção de uma música | Não | Não | Não | Não | Não | Sim |
-| Apagar de vez uma música removida | Não | Não | Não | Não | Não | Sim |
+| Remover música do acervo (apaga os arquivos) | Não | Não | Não | Não | Não | Sim |
 
 Visitante é quem abriu o app e ainda não entrou em nenhuma sala: ele só vê a lista e cria uma sala, que o torna dono e convidado dela. O dono da sala é o "host" da sala dele: nas outras salas, é um convidado como qualquer outro. O acervo e o painel continuam só do host, porque são de todas as salas. A coluna TV vale para pedidos à API. A voz guia e o atraso que a própria TV ajusta na tela ficam só no navegador dela. A TV é dona das músicas que adiciona, como um convidado é das dele: cada sala ganha um convidado interno "TV" (com `token_hash` igual a `tv:<id da sala>`, que nenhum celular consegue ter, porque o de um convidado é um sha256), e as músicas da TV ficam no nome dele. Na fila elas aparecem como adicionadas por "TV", e o nome de quem canta é o que for digitado.
 
@@ -383,7 +381,7 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `POST /api/rooms/{code}/queue/{id}/transcription` | Dono da entrada, dono da sala ou host | Responde à pergunta: `{"accept": true}` transcreve; `false` remove a entrada |
 | `GET /api/songs/{video_id}` | Convidado | Status, metadados, tom original e URLs de mídia |
 | `GET /api/preview/{video_id}` | Convidado | Prévia de um vídeo ainda não baixado, antes de adicioná-lo: a API acha o áudio com o yt-dlp e o repassa, com Range. Músicas do acervo tocam a prévia direto de `/media` |
-| `GET /api/library?q=` | Convidado | Acervo de músicas prontas; removidas ficam de fora. Com `removed=true` (só o host), lista as removidas, para desfazer a remoção ou apagar de vez, com o tamanho de cada uma em `disk_bytes` |
+| `GET /api/library?q=` | Convidado | Acervo de músicas prontas; para o host, com o tamanho de cada uma em `disk_bytes`, o que remover libera |
 | `POST /api/host/login` | Qualquer um | Troca o PIN do host por um cookie de host |
 | `POST /api/host/logout` | Qualquer um | Apaga o cookie de host ("Sair do admin" no menu da TV); o cookie de TV e o de convidado ficam |
 | `POST /api/rooms` | Qualquer um (fora o host: 10 por hora por endereço e até 20 salas abertas) | Cria uma sala `{name, password?, nickname?}` com um código novo; quem cria é o dono e já entra nela (o host não é dono). O apelido é obrigatório para quem ainda não está em nenhuma sala. As outras salas continuam abertas |
@@ -392,9 +390,8 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `POST /api/rooms/{code}/player/{ação}` | Host ou dono da sala; a TV, só play, pause e skip | play, pause, skip, ou `guide` e `delay` com `{"value": ...}` (voz guia de 0 a 100% e atraso da TV em ms) |
 | `PUT /api/songs/{video_id}/lyrics` | Host | Troca a letra e realinha |
 | `POST /api/songs/{video_id}/reprocess` | Host | Reprocessa as etapas escolhidas |
-| `DELETE /api/songs/{video_id}` | Host | Marca a música como removida; registro, arquivos e histórico ficam |
-| `POST /api/songs/{video_id}/restore` | Host | Desfaz a remoção usando os arquivos guardados, sem reprocessar |
-| `POST /api/songs/{video_id}/purge` | Host | Apaga de vez a pasta de uma música removida e devolve os bytes liberados (`freed_bytes`) |
+| `DELETE /api/songs/{video_id}` | Host | Remove a música do acervo de vez: apaga a pasta e devolve os bytes liberados (`freed_bytes`); registro e histórico ficam |
+| `POST /api/songs/purge-removed` | Host | Apaga de vez as músicas removidas do jeito antigo, que ainda ocupam o disco, e devolve quantas e os bytes liberados |
 | `GET /api/songs/{video_id}/history` | Host | Eventos da música em `song_events` |
 | `GET /api/jobs` | Host | Painel de jobs: os recentes, com música, etapa, progresso, tentativas e erro |
 | `GET /api/disk` | Host | Painel de disco: espaço livre do volume, tamanho das músicas e aviso quando estiver acabando |
@@ -506,7 +503,7 @@ Todas foram respondidas. O túnel escolhido foi o Cloudflare Tunnel nomeado, com
 - [x] Fase 2 com domínio próprio na Cloudflare ou com Tailscale Funnel? Decisão: Cloudflare Tunnel nomeado, com domínio próprio.
 - [x] Quantos GB de VRAM a GPU tem? Decisão: 8 GB, então o worker carrega um modelo por vez.
 - [x] Vídeo original sem som ao fundo da letra numa v2? Decisão: não, para poupar o armazenamento local.
-- [x] Ao marcar uma música como removida, apagar os áudios ou mantê-los? Decisão: manter, para poder desfazer a remoção sem reprocessar; o host pode apagar de vez uma música removida, para liberar o disco.
+- [x] Ao marcar uma música como removida, apagar os áudios ou mantê-los? Decisão: manter, para poder desfazer a remoção sem reprocessar. Revista em 18/10/2026: remover do acervo apaga de vez, para liberar o disco, sem desfazer.
 - [x] Prazo para responder se a letra deve ser transcrita? Decisão: sem prazo; a entrada espera e não toca.
 
 ## Fontes

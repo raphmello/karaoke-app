@@ -26,7 +26,6 @@ MATRIX = [
     (Action.PLAYER_SETTINGS, True, False, False, False, True),
     (Action.REPROCESS, False, False, False, False, True),
     (Action.REMOVE_SONG, False, False, False, False, True),
-    (Action.RESTORE_SONG, False, False, False, False, True),
 ]
 
 

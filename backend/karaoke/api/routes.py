@@ -35,6 +35,7 @@ from karaoke.api.schemas import (
     LyricsIn,
     PlayerValueIn,
     PurgeOut,
+    PurgeRemovedOut,
     QueueEntryIn,
     QueueEntryOut,
     QueueEntryPatch,
@@ -85,13 +86,12 @@ from karaoke.core.songs import (
     answer_transcription,
     close_room,
     move_entry,
-    purge_song,
+    purge_removed,
     queue_rows,
     remove_entry,
     remove_song,
     replace_lyrics,
     reprocess,
-    restore_song,
     skip_playing,
 )
 from karaoke.core.storage import VIDEO_ID, SongFolder
@@ -156,21 +156,17 @@ def library(
     db: Sessions,
     settings: AppSettings,
     q: Annotated[str | None, Query(max_length=200)] = None,
-    removed: bool = False,
 ) -> list[SongOut]:
-    """The songs that play right away. Removed ones stay in the database but out of the library; `removed=true`
-    lists them instead, for the host to restore or delete for good, each with its size."""
+    """The songs that play right away. For the host, each one's size: what removing it frees, said before."""
     with transaction(db) as session:
         actor = deps.require_actor(request, session)
-        if removed and not can(actor, Action.RESTORE_SONG):
-            raise HTTPException(403, "Só o host vê as músicas removidas.")
-        query = select(Song).where(Song.status == (REMOVED if removed else READY))
+        query = select(Song).where(Song.status == READY)
         for word in (q or "").split():
             pattern = f"%{word}%"
             query = query.where(or_(Song.title.ilike(pattern), Song.artist.ilike(pattern), Song.track.ilike(pattern)))
         rows = session.scalars(query.order_by(Song.artist, Song.track, Song.title)).all()
         found = [SongOut.of(row, original_name(settings, row.video_id)) for row in rows]
-        if removed:  # what "Apagar de vez" would free, said before it is asked
+        if can(actor, Action.REMOVE_SONG):
             for song in found:
                 song.disk_bytes = folder_bytes(SongFolder(settings.media_dir, song.video_id).root)
         return found
@@ -601,31 +597,24 @@ def reprocess_song(request: Request, db: Sessions, video_id: str, body: Reproces
     return ReprocessOut(stages=stages)
 
 
-@api.delete("/songs/{video_id}", status_code=204)
-def remove_from_library(request: Request, db: Sessions, video_id: str) -> None:
-    """Marks the song as removed; the row, the files and the history stay."""
+@api.post("/songs/purge-removed")
+def purge_old_removed(request: Request, db: Sessions, settings: AppSettings) -> PurgeRemovedOut:
+    """The songs removed the old way, whose files stayed, deleted for good at once (docs/ARCHITECTURE.md, "Remover do
+    acervo apaga de vez")."""
+    with transaction(db) as session:
+        deps.require_host(request, session)
+        count, freed = conflict(purge_removed, session, settings, HOST)
+    return PurgeRemovedOut(songs=count, freed_bytes=freed)
+
+
+@api.delete("/songs/{video_id}")
+def remove_from_library(request: Request, db: Sessions, settings: AppSettings, video_id: str) -> PurgeOut:
+    """Removes the song from the library for good: its files leave the disk; the row and its history stay. Never a
+    song playing or being prepared."""
     with transaction(db) as session:
         _, song = host_song(request, session, video_id, Action.REMOVE_SONG)
-        conflict(remove_song, session, song, HOST)
+        freed = conflict(remove_song, session, settings, song, HOST)
     notify(hub(request).queue_changed, None)
-
-
-@api.post("/songs/{video_id}/restore", status_code=204)
-def restore(request: Request, db: Sessions, settings: AppSettings, video_id: str) -> None:
-    """Undoes the removal with the files kept, without reprocessing."""
-    with transaction(db) as session:
-        _, song = host_song(request, session, video_id, Action.RESTORE_SONG)
-        conflict(restore_song, session, settings, song, HOST)
-    notify(hub(request).queue_changed, None)
-
-
-@api.post("/songs/{video_id}/purge")
-def purge(request: Request, db: Sessions, settings: AppSettings, video_id: str) -> PurgeOut:
-    """Deletes a removed song's files for good, to free the disk (docs/ARCHITECTURE.md, "Apagar de vez"); the row
-    and its history stay. Only the host, only a removed song, never one in a queue or being prepared."""
-    with transaction(db) as session:
-        _, song = host_song(request, session, video_id, Action.REMOVE_SONG)
-        freed = conflict(purge_song, session, settings, song, HOST)
     return PurgeOut(freed_bytes=freed)
 
 
@@ -678,7 +667,7 @@ def folder_bytes(path) -> int:
 
 @api.get("/disk")
 def disk(request: Request, db: Sessions, settings: AppSettings) -> DiskOut:
-    """The disk panel: ~65 MB per song, and removed songs keep their files."""
+    """The disk panel: ~65 MB per song, and the songs removed the old way, which kept their files."""
     with transaction(db) as session:
         deps.require_host(request, session)
         statuses = dict(session.execute(select(Song.video_id, Song.status)).all())

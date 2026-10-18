@@ -109,5 +109,5 @@ def test_the_tv_cannot_do_what_belongs_to_the_host_or_the_guests(tv, phone, code
     assert tv.post(f"/api/rooms/{code}/player/guide", json={"value": 50}).status_code == 403
     assert tv.get("/api/jobs").status_code == 401
     assert tv.get("/api/disk").status_code == 401
-    assert tv.get("/api/library?removed=true").status_code in (401, 403)
+    assert tv.delete(f"/api/songs/{VIDEO}").status_code in (401, 403)
     assert tv.post(f"/api/songs/{VIDEO}/reprocess", json={"stages": []}).status_code in (401, 403)

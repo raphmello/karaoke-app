@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
 import { STAGE_NAMES } from "../lib/queue";
+import { ConfirmButton } from "../room/ConfirmButton";
 
 const GB = 1024 ** 3;
 const gb = (bytes: number) => `${(bytes / GB).toFixed(1)} GB`;
@@ -36,7 +37,7 @@ export function Panel() {
           <>
             {disk.data.low && (
               <p className="mb-2 font-semibold text-red-200">
-                O espaço está acabando. Cada música ocupa cerca de 65 MB; músicas removidas continuam ocupando espaço.
+                O espaço está acabando. Cada música ocupa cerca de 65 MB; remover uma música do acervo libera o espaço dela.
               </p>
             )}
             <dl className="grid grid-cols-2 gap-x-6 gap-y-1 text-sm sm:grid-cols-4">
@@ -48,11 +49,16 @@ export function Panel() {
               <dd>
                 {disk.data.songs} · {gb(disk.data.media_bytes)}
               </dd>
-              <dt className="text-zinc-400">Removidas</dt>
-              <dd>
-                {disk.data.removed_songs} · {gb(disk.data.removed_bytes)}
-              </dd>
+              {disk.data.removed_songs > 0 && (
+                <>
+                  <dt className="text-zinc-400">Removidas</dt>
+                  <dd>
+                    {disk.data.removed_songs} · {gb(disk.data.removed_bytes)}
+                  </dd>
+                </>
+              )}
             </dl>
+            {disk.data.removed_songs > 0 && <PurgeRemoved bytes={disk.data.removed_bytes} />}
           </>
         ) : (
           <p className="text-zinc-400">{disk.isError ? disk.error.message : "Carregando…"}</p>
@@ -88,6 +94,35 @@ export function Panel() {
           ))}
         </ul>
       </section>
+    </div>
+  );
+}
+
+/** The songs removed before removing deleted for good (docs/ARCHITECTURE.md, "Remover do acervo apaga de vez"):
+ *  their files stayed, and nothing else shows them any more. One button deletes them all. */
+function PurgeRemoved({ bytes }: { bytes: number }) {
+  const queryClient = useQueryClient();
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const purge = async () => {
+    setMessage(null);
+    try {
+      const done = await api.purgeRemoved();
+      setMessage({ ok: true, text: `${done.songs} música(s) apagada(s); ${gb(done.freed_bytes)} liberados.` });
+    } catch (e) {
+      setMessage({ ok: false, text: (e as Error).message });
+    }
+    void queryClient.invalidateQueries({ queryKey: ["disk"] });
+  };
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-3">
+      <p className="text-sm text-zinc-400">Músicas removidas antes da versão 2026.1.10 ainda ocupam o disco.</p>
+      <ConfirmButton
+        className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-semibold text-red-300 hover:bg-zinc-700"
+        label="Apagar de vez"
+        confirmLabel={`Apagar de vez e liberar ${gb(bytes)} (não dá para desfazer)`}
+        onConfirm={() => void purge()}
+      />
+      {message && <p className={`text-sm ${message.ok ? "text-emerald-300" : "text-red-400"}`}>{message.text}</p>}
     </div>
   );
 }
