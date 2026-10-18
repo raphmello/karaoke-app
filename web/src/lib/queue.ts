@@ -36,7 +36,25 @@ export const STAGE_NAMES: Record<string, string> = {
   encode: "Finalizando",
 };
 
-export type Progress = Record<string, { stage: string; progress: number }>;
+/** A song being prepared, as the worker last said (docs/ARCHITECTURE.md, "Progresso da preparação"): the progress
+ *  in step with the time and the seconds still to go, learned from this PC's pace. */
+export type Live = { stage: string; progress: number; eta_s?: number };
+export type Progress = Record<string, Live>;
+
+/** The time left, said for people: never a precise second, which would only jump about. */
+export function formatEta(seconds: number | undefined): string {
+  if (seconds === undefined) return "";
+  if (seconds < 20) return "quase pronta";
+  if (seconds < 60) return "falta menos de 1 min";
+  return `falta ~${Math.round(seconds / 60)} min`;
+}
+
+/** The song's preparation now, when it is under way. */
+export function liveProgress(entry: QueueEntry, progress: Progress): Live | null {
+  const song = entry.song;
+  if (song.status !== "processing" && song.status !== "pending") return null;
+  return progress[entry.video_id] ?? null;
+}
 
 export function statusText(entry: QueueEntry, progress: Progress): string {
   if (entry.status === "playing") return "Tocando agora";
@@ -47,8 +65,12 @@ export function statusText(entry: QueueEntry, progress: Progress): string {
   if (song.status === "failed") return `Erro no processamento${song.error ? `: ${song.error}` : ""}`;
   const live = progress[entry.video_id];
   const stage = live?.stage ?? song.stage;
-  if (stage) return `${STAGE_NAMES[stage] ?? stage}${live ? ` · ${live.progress}%` : ""}`;
-  return "Na fila para processar";
+  if (stage) {
+    const parts = [STAGE_NAMES[stage] ?? stage];
+    if (live) parts.push(`${live.progress}%`, formatEta(live.eta_s));
+    return parts.filter(Boolean).join(" · ");
+  }
+  return "Na fila para ser preparada";
 }
 
 export function songTitle(song: { track: string | null; title: string | null; video_id: string }): string {

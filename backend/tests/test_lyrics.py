@@ -133,11 +133,14 @@ def test_a_busy_lrclib_is_tried_again(monkeypatch):
     assert len(calls) == 3
 
 
-def test_an_lrclib_still_down_after_four_tries_fails_the_stage(monkeypatch):
-    calls = answering(monkeypatch, 503, 503, 503, 503)
-    with pytest.raises(requests.HTTPError):
+def test_an_lrclib_still_down_after_a_minute_fails_the_stage_saying_so(monkeypatch):
+    calls = answering(monkeypatch, 503, 503, requests.Timeout("slow"), 503, 503, 503)
+    waits = []
+    monkeypatch.setattr(lyrics_module.time, "sleep", waits.append)
+    with pytest.raises(lyrics_module.LyricsSiteDown, match="fora do ar") as failed:
         lyrics_module.lrclib_request("search", {"q": "x"})
-    assert len(calls) == 4
+    assert len(calls) == 6 and sum(waits) == 67  # about a minute, for an outage like 2026-10-16's
+    assert failed.value.user_facing and failed.value.retryable
 
 
 def test_not_found_is_an_answer_not_an_outage(monkeypatch):

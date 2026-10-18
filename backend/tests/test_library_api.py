@@ -7,7 +7,7 @@ from helpers import write_manifest
 from sqlalchemy import select
 
 from karaoke.core.db import transaction
-from karaoke.core.models import Job, QueueEntry, Song
+from karaoke.core.models import Job, QueueEntry, Room, Song
 from karaoke.core.songs import STAGES, with_dependents
 from karaoke.core.storage import SongFolder
 
@@ -129,6 +129,47 @@ def test_removing_a_song_takes_its_entries_out_and_restoring_needs_no_processing
 
     events = host.get(f"/api/songs/{VIDEO}/history").json()
     assert [(e["kind"], e["by"]) for e in events] == [("removed", "host"), ("reactivated", "host")]
+
+
+def test_a_removed_song_is_deleted_for_good_to_free_the_disk(phone, host, code, db, settings):
+    make_song(db, settings)
+    folder = SongFolder(settings.media_dir, VIDEO).root
+    (folder / "stems.flac").write_bytes(b"x" * 5000)
+    purge = f"/api/songs/{VIDEO}/purge"
+    assert host.post(purge).status_code == 409  # only a removed song
+    assert phone(code, "Ana").post(purge).status_code in (401, 403)  # only the host
+
+    host.delete(f"/api/songs/{VIDEO}")
+    listed = host.get("/api/library?removed=true").json()
+    assert listed[0]["disk_bytes"] >= 5000  # said before it is asked
+    freed = host.post(purge)
+    assert freed.status_code == 200 and freed.json()["freed_bytes"] >= 5000
+    assert not folder.exists()
+    assert song(db).status == "purged"
+    assert host.get("/api/library?removed=true").json() == []  # out of the removed list too
+    assert host.get("/api/disk").json()["songs"] == 0
+    assert host.post(f"/api/songs/{VIDEO}/restore").status_code == 409  # no files to bring back
+    assert host.post(purge).status_code == 409
+    assert [e["kind"] for e in host.get(f"/api/songs/{VIDEO}/history").json()] == ["removed", "purged"]
+
+    # Added again, it is prepared from scratch, like a new one
+    assert phone(code, "Bia").post(f"/api/rooms/{code}/queue", json={"video_id": VIDEO}).status_code == 201
+    assert song(db).status == "pending" and len(jobs(db)) == 1
+
+
+def test_a_song_in_a_queue_or_being_prepared_is_never_deleted_for_good(phone, host, code, db, settings):
+    make_song(db, settings, status="removed")
+    with db() as session:
+        room_id = session.scalar(select(Room.id).where(Room.code == code))
+    with transaction(db) as session:
+        session.add(QueueEntry(room_id=room_id, video_id=VIDEO, position=1, status="playing"))
+    assert host.post(f"/api/songs/{VIDEO}/purge").status_code == 409
+    with transaction(db) as session:
+        session.query(QueueEntry).delete()
+        session.add(Job(video_id=VIDEO, status="running"))
+    answer = host.post(f"/api/songs/{VIDEO}/purge")
+    assert answer.status_code == 409 and "preparada" in answer.json()["detail"]
+    assert SongFolder(settings.media_dir, VIDEO).root.exists()
 
 
 def test_history_names_who_did_it(phone, host, code, db, settings):

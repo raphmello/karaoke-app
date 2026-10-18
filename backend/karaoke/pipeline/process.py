@@ -22,6 +22,8 @@ class Context:
     folder: SongFolder
     manifest: Manifest
     transcribe: bool = False
+    # How far the running stage got (0 to 1), for the long ones that can tell (pipeline/progress.py)
+    progress: Callable[[float], None] = field(default=lambda fraction: None)
 
 
 @dataclass
@@ -60,10 +62,13 @@ def process(
     transcribe: bool = False,
     stages: list[Stage] | None = None,
     on_stage: Callable[[str, int, int], None] | None = None,
+    on_plan: Callable[[list[str]], None] | None = None,
+    on_progress: Callable[[str, float], None] | None = None,
 ) -> str:
     """Run the job for one video and return its final status: ready or awaiting_decision.
 
-    `on_stage(name, index, total)` is called before each stage that actually runs, for progress reports.
+    `on_stage(name, index, total)` is called before each stage that actually runs, for progress reports;
+    `on_plan(names)` once, with the stages that will run; `on_progress(name, fraction)` from inside a stage.
     """
     folder = SongFolder(settings.media_dir, video_id)
     folder.root.mkdir(parents=True, exist_ok=True)
@@ -76,8 +81,12 @@ def process(
         return "ready"
 
     manifest.set(status="processing", error=None, **({"transcribe": True} if transcribe else {}))
+    if on_plan:
+        on_plan([stage.name for stage in stages if not manifest.done(stage.name)])
     try:
         for index, stage in enumerate(stages):
+            if on_progress:
+                ctx.progress = lambda fraction, name=stage.name: on_progress(name, fraction)
             if manifest.done(stage.name):
                 log.info("%-10s já feito", stage.name)
             else:

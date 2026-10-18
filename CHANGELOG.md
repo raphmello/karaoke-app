@@ -2,6 +2,20 @@
 
 As mudanças de cada release do Karaokê, da mais nova para a mais antiga. As versões seguem o formato `ANO.MAJOR.MINOR`, e cada release tem um branch `release/<versão>` e uma tag `v<versão>`.
 
+## [2026.1.9] - 2026-10-18
+
+### Novidades
+
+- **Progresso fiel ao tempo, com o tempo que falta:** cada música em preparação ganha uma barra que anda junto com o trabalho de verdade, nunca volta para trás e diz a etapa, a porcentagem e quanto falta ("falta ~2 min", "quase pronta"). A separação e o alinhamento contam por dentro, e o tempo que falta aprende o ritmo deste PC com as últimas músicas preparadas. A TV que espera a próxima música mostra a barra grande.
+- **Apagar de vez, para liberar o disco:** no acervo, com "Mostrar removidas", cada música removida ganha **Apagar de vez**, que diz quanto libera (cerca de 50 a 60 MB por música) e pede confirmação. O histórico fica; adicionada de novo, a música é preparada do zero. Uma música numa fila ou sendo preparada nunca é apagada.
+- **Adicionar de novo tenta outra vez:** adicionar uma música que não deu para preparar retoma a preparação do ponto em que parou. Se você já tinha essa música na fila da sala, ela continua no mesmo lugar, sem uma repetida no fim.
+- **Cards na lista de adicionar:** cada música da busca e do acervo é um card próprio, e onde a lista é estreita (o celular, o menu da TV) **Ouvir** e **Adicionar** ficam embaixo, para o nome e o artista usarem a largura toda.
+
+### Correções
+
+- **Falha passageira no YouTube ou no LRCLIB:** uma música que falha nos metadados, na letra ou no download tenta de novo sozinha, até 3 vezes, da etapa em que parou. O LRCLIB fora do ar é esperado por cerca de um minuto (antes, uns 7 s); se continuar fora, a música diz isso com uma mensagem clara.
+- **Aviso da música que não deu para preparar:** quando as tentativas acabam, a TV mostra no alto "Não deu para preparar …", sem cobrir a letra. Na TV do admin, com **Tentar de novo**; nas outras, dizendo que o admin pode tentar de novo no Painel ou que dá para adicionar a música de novo. No celular, a música que falhou diz "Adicione de novo para tentar outra vez".
+
 ## [2026.1.8] - 2026-10-13
 
 ### Documentação

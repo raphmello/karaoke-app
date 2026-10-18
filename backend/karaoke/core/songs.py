@@ -5,6 +5,8 @@ runs inside the caller's transaction.
 """
 from __future__ import annotations
 
+import shutil
+
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert
 from sqlalchemy.orm import Session
@@ -14,8 +16,12 @@ from karaoke.core.models import (
     ACTIVE_ENTRY,
     AWAITING_DECISION,
     DONE,
+    FAILED,
+    JOB_PENDING,
+    JOB_RUNNING,
     PENDING,
     PLAYING,
+    PURGED,
     QUEUED,
     READY,
     REMOVED,
@@ -56,7 +62,9 @@ def add_to_queue(
     semitones: int = 0,
     known: dict | None = None,
 ) -> QueueEntry:
-    """A new entry every time (repeats are allowed); what it triggers depends on the song's state. `known` is what
+    """A new entry every time (repeats are allowed), except for a song that failed: adding it again tries it again,
+    and the person's own entry of it in this room, if there is one, stays where it is. What it triggers depends on
+    the song's state. `known` is what
     a search already told about the video (title, channel, duration, thumbnail): a new song starts with it instead
     of showing only its id until the pipeline's metadata stage."""
     by = guest_id or HOST
@@ -72,8 +80,24 @@ def add_to_queue(
     if inserted:
         record(session, video_id, "created", by)
         ensure_job(session, video_id)
-    elif song.status == REMOVED:
+    elif song.status in (REMOVED, PURGED):  # a song deleted for good is prepared again from scratch
         reactivate(session, settings, song, by)
+    elif song.status == FAILED:  # adding it again tries again, from the stage that failed
+        if ensure_job(session, video_id):
+            song.status, song.error = PENDING, None
+            record(session, video_id, "retried", by)
+        mine = session.scalar(
+            select(QueueEntry)
+            .where(
+                QueueEntry.room_id == room.id,
+                QueueEntry.video_id == video_id,
+                QueueEntry.status == QUEUED,
+                QueueEntry.guest_id.is_(None) if guest_id is None else QueueEntry.guest_id == guest_id,
+            )
+            .order_by(QueueEntry.position)
+        )
+        if mine is not None:  # the entry already there is prepared again in its place, never a repeat at the end
+            return mine
 
     last = session.scalar(select(func.max(QueueEntry.position)).where(QueueEntry.room_id == room.id))
     entry = QueueEntry(
@@ -276,7 +300,7 @@ def reprocess(session: Session, song: Song, stages: list[str]) -> list[str]:
     unknown = set(stages) - set(STAGES)
     if unknown:
         raise QueueError(f"Etapas desconhecidas: {', '.join(sorted(unknown))}.")
-    if song.status == REMOVED:
+    if song.status in (REMOVED, PURGED):
         raise QueueError("A música está removida. Desfaça a remoção antes.")
     redo = with_dependents(set(stages))
     if not ensure_job(session, song.video_id, {"redo": redo} if redo else None):
@@ -290,7 +314,7 @@ def replace_lyrics(session: Session, settings: Settings, song: Song, text: str) 
     again; a song that was waiting for the transcription answer goes on to download, with these lyrics."""
     from karaoke.pipeline.lyrics import parse_lrc
 
-    if song.status == REMOVED:
+    if song.status in (REMOVED, PURGED):
         raise QueueError("A música está removida. Desfaça a remoção antes.")
     synced = parse_lrc(text)
     lines = synced or [{"t": None, "text": line.strip()} for line in text.splitlines() if line.strip()]
@@ -320,7 +344,7 @@ def replace_lyrics(session: Session, settings: Settings, song: Song, text: str) 
 def remove_song(session: Session, song: Song, by: str) -> None:
     """Logical removal from the library: the row, the files and the history stay. Its entries waiting in the queue
     leave it too; one that is playing finishes."""
-    if song.status == REMOVED:
+    if song.status in (REMOVED, PURGED):
         raise QueueError("A música já está removida.")
     song.status, song.removed_at, song.removed_reason = REMOVED, utcnow(), BY_HOST
     session.execute(
@@ -332,9 +356,45 @@ def remove_song(session: Session, song: Song, by: str) -> None:
 
 
 def restore_song(session: Session, settings: Settings, song: Song, by: str) -> None:
+    if song.status == PURGED:
+        raise QueueError("A música foi apagada de vez. Para cantar de novo, adicione-a outra vez.")
     if song.status != REMOVED:
         raise QueueError("A música não está removida.")
     reactivate(session, settings, song, by)
+
+
+def purge_song(session: Session, settings: Settings, song: Song, by: str) -> int:
+    """Deletes a removed song's files for good, to free the disk (docs/ARCHITECTURE.md, "Apagar de vez"): its whole
+    folder. The row stays, as purged, so the history still counts it; added again, the song is prepared from scratch.
+    Never a song in a queue or being prepared. Returns the bytes freed."""
+    if song.status == PURGED:
+        raise QueueError("A música já foi apagada de vez.")
+    if song.status != REMOVED:
+        raise QueueError("Remova a música do acervo antes de apagá-la de vez.")
+    busy = session.scalar(
+        select(Job.id).where(Job.video_id == song.video_id, Job.status.in_((JOB_PENDING, JOB_RUNNING))).limit(1)
+    )
+    if busy is not None:
+        raise QueueError("A música está sendo preparada; apague de vez quando terminar.")
+    queued = session.scalar(
+        select(QueueEntry.id)
+        .join(Room, Room.id == QueueEntry.room_id)
+        .where(*open_rooms(), QueueEntry.video_id == song.video_id, QueueEntry.status.in_(ACTIVE_ENTRY))
+        .limit(1)
+    )
+    if queued is not None:
+        raise QueueError("A música ainda está numa fila.")
+    folder = SongFolder(settings.media_dir, song.video_id).root
+    freed = sum(path.stat().st_size for path in folder.rglob("*") if path.is_file()) if folder.exists() else 0
+    try:
+        shutil.rmtree(folder)
+    except FileNotFoundError:
+        pass
+    except OSError as exc:  # a file in use: the song stays removed, and it can be tried again
+        raise QueueError(f"Não deu para apagar todos os arquivos ({exc}). Tente de novo.") from exc
+    song.status, song.stage, song.error, song.ready_at = PURGED, None, None, None
+    record(session, song.video_id, "purged", by, {"freed_bytes": freed})
+    return freed
 
 
 def hold_for_decision(session: Session, video_id: str) -> list[int]:

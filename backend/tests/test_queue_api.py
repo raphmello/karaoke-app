@@ -258,6 +258,36 @@ def test_removing_a_room_tells_its_screens_and_finishes_what_played(phone, host,
     assert host.get(f"/api/rooms/{code}/queue").status_code == 404
 
 
+def fail(db, video):
+    """The worker gave up on the song: its job failed, and so did the song."""
+    with transaction(db) as session:
+        for job in session.scalars(select(Job).where(Job.video_id == video)):
+            job.status = "failed"
+        song = session.get(Song, video)
+        song.status, song.error = "failed", "DownloadError: HTTP Error 403"
+
+
+def test_adding_a_failed_song_again_tries_it_again_and_keeps_the_entry_in_its_place(phone, code, db):
+    ana, bia = phone(code, "Ana"), phone(code, "Bia")
+    anas = add(ana, code)
+    add(bia, code, OTHER_VIDEO)
+    fail(db, VIDEO)
+
+    assert add(ana, code) == anas  # no repeat at the end: the entry already there waits for the new try
+    with db() as session:
+        song = session.get(Song, VIDEO)
+        assert (song.status, song.error) == ("pending", None)
+        jobs = session.scalars(select(Job).where(Job.video_id == VIDEO)).all()
+        assert sorted(job.status for job in jobs) == ["failed", "pending"]  # resumes where it stopped
+        assert session.scalar(select(SongEvent).where(SongEvent.kind == "retried")) is not None
+    assert [e["id"] for e in ana.get(f"/api/rooms/{code}/queue").json()][0] == anas
+
+    bias = add(bia, code)  # someone else: their own entry, and still only one job
+    assert bias != anas
+    with db() as session:
+        assert len(session.scalars(select(Job).where(Job.video_id == VIDEO, Job.status == "pending")).all()) == 1
+
+
 # --- the 10-minute limit -------------------------------------------------------------------------------------------
 
 def test_a_video_too_long_for_the_tv_is_refused_when_its_length_is_known(phone, code, db):

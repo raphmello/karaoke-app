@@ -15,9 +15,9 @@ class Base(DeclarativeBase):
     pass
 
 
-# songs.status
-PENDING, AWAITING_DECISION, PROCESSING, READY, FAILED, REMOVED = (
-    "pending", "awaiting_decision", "processing", "ready", "failed", "removed"
+# songs.status; purged: removed, then its files deleted for good (the row and its history stay)
+PENDING, AWAITING_DECISION, PROCESSING, READY, FAILED, REMOVED, PURGED = (
+    "pending", "awaiting_decision", "processing", "ready", "failed", "removed", "purged"
 )
 # queue_entries.status, besides AWAITING_DECISION and REMOVED above
 QUEUED, PLAYING, DONE, SKIPPED = "queued", "playing", "done", "skipped"

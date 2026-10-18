@@ -124,7 +124,10 @@ class Hub:
             await self.lyrics_missing(event["video_id"], event.get("entries") or [])
         else:
             await self.send_everywhere(event)
-        # Progress also refreshes the queue: the song's title and artist arrive with the first stages.
+        # A stage starting also refreshes the queue: the song's title and artist arrive with the first stages. The
+        # progress in between (every second or so, docs/ARCHITECTURE.md, "Progresso da preparação") goes alone.
+        if kind == "song.progress" and not event.get("new_stage", True):
+            return
         if kind in ("song.progress", "song.ready", "song.failed", "song.lyrics_missing"):
             await self.queue_changed()
 

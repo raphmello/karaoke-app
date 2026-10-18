@@ -94,6 +94,7 @@ export function usePreview(sources: string[]) {
 export function PreviewButton({ preview }: { preview: PreviewControl }) {
   const { state } = preview;
   const label = state === "playing" ? "Pausar a prévia" : state === "error" ? "Prévia indisponível" : "Ouvir a prévia";
+  const text = state === "playing" ? "Pausar" : state === "error" ? "Indisponível" : "Ouvir";
   return (
     <button
       type="button"
@@ -101,25 +102,25 @@ export function PreviewButton({ preview }: { preview: PreviewControl }) {
       disabled={state === "loading" || state === "error"}
       aria-label={label}
       title={label}
-      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition-colors disabled:opacity-60 ${
+      className={`flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-semibold transition-colors disabled:opacity-60 ${
         state === "playing" ? "bg-amber-400 text-zinc-950" : "bg-zinc-800 text-amber-300 hover:bg-zinc-700"
       }`}
     >
       {state === "loading" ? (
-        <span className="h-5 w-5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+        <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
       ) : state === "playing" ? (
-        <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor" aria-hidden="true">
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
           <rect x="6" y="5" width="4" height="14" rx="1" />
           <rect x="14" y="5" width="4" height="14" rx="1" />
         </svg>
       ) : state === "error" ? (
-        <span className="text-xl font-bold" aria-hidden="true">
+        <span className="font-bold" aria-hidden="true">
           !
         </span>
       ) : (
         <svg
           viewBox="0 0 24 24"
-          className="h-6 w-6"
+          className="h-5 w-5"
           fill="none"
           stroke="currentColor"
           strokeWidth="2"
@@ -132,6 +133,7 @@ export function PreviewButton({ preview }: { preview: PreviewControl }) {
           <path d="M9.5 9.2a2.5 2.5 0 0 1 5 0c0 1.1-.7 1.6-1.3 2.1" />
         </svg>
       )}
+      <span aria-hidden="true">{text}</span>
     </button>
   );
 }

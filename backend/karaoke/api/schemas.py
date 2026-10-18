@@ -36,6 +36,7 @@ class SongOut(BaseModel):
     alignment_confidence: float | None
     error: str | None
     media: Media | None
+    disk_bytes: int | None = None  # in the removed list: what "Apagar de vez" frees
 
     @classmethod
     def of(cls, song: Song, original: str | None = None) -> SongOut:
@@ -245,6 +246,10 @@ class JobOut(BaseModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+
+
+class PurgeOut(BaseModel):
+    freed_bytes: int
 
 
 class DiskOut(BaseModel):

@@ -34,6 +34,7 @@ from karaoke.api.schemas import (
     LoginIn,
     LyricsIn,
     PlayerValueIn,
+    PurgeOut,
     QueueEntryIn,
     QueueEntryOut,
     QueueEntryPatch,
@@ -61,6 +62,7 @@ from karaoke.core.db import transaction
 from karaoke.core.models import (
     AWAITING_DECISION,
     PLAYING,
+    PURGED,
     READY,
     ROOM_LIFETIME,
     REMOVED,
@@ -83,6 +85,7 @@ from karaoke.core.songs import (
     answer_transcription,
     close_room,
     move_entry,
+    purge_song,
     queue_rows,
     remove_entry,
     remove_song,
@@ -156,7 +159,7 @@ def library(
     removed: bool = False,
 ) -> list[SongOut]:
     """The songs that play right away. Removed ones stay in the database but out of the library; `removed=true`
-    lists them instead, for the host to restore."""
+    lists them instead, for the host to restore or delete for good, each with its size."""
     with transaction(db) as session:
         actor = deps.require_actor(request, session)
         if removed and not can(actor, Action.RESTORE_SONG):
@@ -166,7 +169,11 @@ def library(
             pattern = f"%{word}%"
             query = query.where(or_(Song.title.ilike(pattern), Song.artist.ilike(pattern), Song.track.ilike(pattern)))
         rows = session.scalars(query.order_by(Song.artist, Song.track, Song.title)).all()
-        return [SongOut.of(row, original_name(settings, row.video_id)) for row in rows]
+        found = [SongOut.of(row, original_name(settings, row.video_id)) for row in rows]
+        if removed:  # what "Apagar de vez" would free, said before it is asked
+            for song in found:
+                song.disk_bytes = folder_bytes(SongFolder(settings.media_dir, song.video_id).root)
+        return found
 
 
 def original_name(settings: Settings, video_id: str) -> str | None:
@@ -612,6 +619,16 @@ def restore(request: Request, db: Sessions, settings: AppSettings, video_id: str
     notify(hub(request).queue_changed, None)
 
 
+@api.post("/songs/{video_id}/purge")
+def purge(request: Request, db: Sessions, settings: AppSettings, video_id: str) -> PurgeOut:
+    """Deletes a removed song's files for good, to free the disk (docs/ARCHITECTURE.md, "Apagar de vez"); the row
+    and its history stay. Only the host, only a removed song, never one in a queue or being prepared."""
+    with transaction(db) as session:
+        _, song = host_song(request, session, video_id, Action.REMOVE_SONG)
+        freed = conflict(purge_song, session, settings, song, HOST)
+    return PurgeOut(freed_bytes=freed)
+
+
 @api.get("/songs/{video_id}/history")
 def history(request: Request, db: Sessions, video_id: str) -> list[SongEventOut]:
     with transaction(db) as session:
@@ -671,7 +688,7 @@ def disk(request: Request, db: Sessions, settings: AppSettings) -> DiskOut:
         total_bytes=usage.total,
         free_bytes=usage.free,
         media_bytes=folder_bytes(settings.media_dir),
-        songs=len(statuses),
+        songs=sum(status != PURGED for status in statuses.values()),  # those deleted for good have no files
         removed_songs=len(removed),
         removed_bytes=sum(folder_bytes(settings.media_dir / video_id) for video_id in removed),
         low=usage.free < LOW_DISK_BYTES or usage.free < LOW_DISK_SHARE * usage.total,
@@ -692,5 +709,7 @@ def media_auth(request: Request, db: Sessions) -> None:
 @internal.post("/events", status_code=204)
 def worker_event(request: Request, event: EventIn) -> None:
     """Job progress from the worker, passed on to the screens. Not routed by Caddy."""
-    log.info("evento %s", event.model_dump())
-    notify(hub(request).worker_event, event.model_dump())
+    data = event.model_dump()
+    if event.type != "song.progress" or data.get("new_stage", True):  # the progress in between: out of the log
+        log.info("evento %s", data)
+    notify(hub(request).worker_event, data)

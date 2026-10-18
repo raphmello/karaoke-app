@@ -18,7 +18,9 @@ log = logging.getLogger("karaoke.pipeline")
 
 LRCLIB = "https://lrclib.net/api"
 HEADERS = {"User-Agent": "karaoke-app/0.1 (https://github.com/raphmello/karaoke-app)"}
-RETRY_WAITS_S = (1.0, 2.0, 4.0)  # LRCLIB is tried 4 times in all
+# LRCLIB down for a while (a 503 lasted over 20 s on 2026-10-16): tried 6 times in all, about a minute
+RETRY_WAITS_S = (2.0, 5.0, 10.0, 20.0, 30.0)
+SITE_DOWN = "O site das letras (LRCLIB) está fora do ar agora; tente de novo em alguns minutos."
 MAX_DURATION_DIFF = 10.0  # seconds; further away it is probably another version of the song
 TIMESTAMP = re.compile(r"\[(\d+):(\d+(?:\.\d+)?)\]")
 NOISE = re.compile(
@@ -32,6 +34,14 @@ NOISE_WORDS = re.compile(
     re.IGNORECASE,
 )
 SEPARATOR = re.compile(r"\s+[-–—|]\s+")  # noqa: RUF001 - YouTube titles use en and em dashes as separators
+
+
+class LyricsSiteDown(Exception):
+    """LRCLIB still down after its retries: said for people, and the worker tries the job again, as for a
+    download that failed (docs/ARCHITECTURE.md, "Novas tentativas e aviso da música que falhou")."""
+
+    user_facing = True
+    retryable = True
 
 
 def parse_lrc(text: str) -> list[dict]:
@@ -128,9 +138,7 @@ def lrclib_request(endpoint: str, params: dict) -> requests.Response:
         except (requests.ConnectionError, requests.Timeout) as exc:
             problem = exc
         if wait is None:
-            if isinstance(problem, requests.HTTPError):
-                problem.response.raise_for_status()
-            raise problem
+            raise LyricsSiteDown(SITE_DOWN) from problem
         log.info("LRCLIB falhou (%s), tentativa %d; de novo em %.0f s", problem, attempt + 1, wait)
         time.sleep(wait)
     raise AssertionError("unreachable")

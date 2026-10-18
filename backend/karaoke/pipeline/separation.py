@@ -11,6 +11,7 @@ from pathlib import Path
 import requests
 
 from karaoke.pipeline.gpu import free_gpu
+from karaoke.pipeline.progress import SEPARATION, follow, part
 
 STEM = re.compile(r"_\(([^)]+)\)")
 
@@ -66,7 +67,9 @@ def run(ctx) -> dict:
     )
     try:
         separator.load_model(model_filename=settings.separation_model)
-        separator.separate(str(wav))
+        ctx.progress(0.05)
+        with follow(SEPARATION, part(ctx.progress, 0.05, 0.95)):  # the separator's chunks, as it goes
+            separator.separate(str(wav))
     finally:
         del separator
         free_gpu()

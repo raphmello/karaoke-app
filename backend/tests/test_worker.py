@@ -28,15 +28,16 @@ A, B, C = "aaaaaaaaaaa", "bbbbbbbbbbb", "ccccccccccc"
 class Pipeline:
     """Stand-in stages that record what ran."""
 
-    def __init__(self, lyrics_found=True, fail_at=None):
+    def __init__(self, lyrics_found=True, fail_at=None, fail_times=None):
         self.lyrics_found, self.fail_at = lyrics_found, fail_at
+        self.fail_times = fail_times  # None: fail_at fails every time
         self.calls: list[str] = []
 
     def stages(self) -> list[Stage]:
         def stage(name):
             def run(ctx):
                 self.calls.append(name)
-                if name == self.fail_at:
+                if name == self.fail_at and (self.fail_times is None or self.calls.count(name) <= self.fail_times):
                     raise RuntimeError(f"{name} broke")
                 if name == "metadata":
                     return {"title": "Artista - Música", "duration_s": 200.0}
@@ -53,7 +54,8 @@ class Pipeline:
 
 def worker(settings, db, pipeline):
     events = []
-    return Worker(settings, db, events.append, stages=pipeline.stages), events
+    # the progress clock stays quiet: the events are the stages' own, in order
+    return Worker(settings, db, events.append, stages=pipeline.stages, retry_wait_s=0, tick_s=3600), events
 
 
 def add(db, settings, room, video, guest_id=None):
@@ -104,7 +106,10 @@ def test_a_job_with_lyrics_ends_ready(db, settings, room):
     job = get(db, Job, 1)
     assert (job.status, job.progress, job.attempts) == (JOB_DONE, 1.0, 1)
     assert [e["type"] for e in events] == ["song.progress"] * 7 + ["song.ready"]
-    assert events[2] == {"type": "song.progress", "video_id": A, "stage": "download", "progress": 29}
+    download = events[2]
+    assert (download["stage"], download["new_stage"]) == ("download", True)
+    # metadata and lyrics take ~3% of a song's time: the bar goes by the time, not by counting stages
+    assert 0 < download["progress"] < 10 and download["eta_s"] > 60
 
 
 def test_missing_lyrics_hold_the_song_and_its_entries(db, settings, room):
@@ -134,6 +139,76 @@ def test_a_failed_job_marks_the_song_failed(db, settings, room):
     assert get(db, Job, 1).status == JOB_FAILED
     assert get(db, QueueEntry, entry.id).status == QUEUED  # the entry shows the error; the host may retry
     assert events[-1] == {"type": "song.failed", "video_id": A, "error": "RuntimeError: separation broke"}
+
+
+def test_a_download_that_fails_now_and_then_is_tried_again_from_where_it_stopped(db, settings, room):
+    add(db, settings, room, A)
+    pipeline = Pipeline(fail_at="download", fail_times=2)
+    work, events = worker(settings, db, pipeline)
+
+    work.run(stop_when_idle=True)
+
+    assert get(db, Song, A).status == READY
+    assert pipeline.calls.count("download") == 3
+    assert pipeline.calls.count("metadata") == 1  # the stages already done are not run again
+    assert get(db, Job, 1).attempts == 3
+    assert not [e for e in events if e["type"] == "song.failed"]
+
+
+def test_after_three_retries_the_song_fails_once(db, settings, room):
+    add(db, settings, room, A)
+    pipeline = Pipeline(fail_at="download")
+    work, events = worker(settings, db, pipeline)
+
+    work.run(stop_when_idle=True)
+
+    assert pipeline.calls.count("download") == 4  # the first try and three more
+    assert get(db, Job, 1).attempts == 4
+    assert get(db, Song, A).status == FAILED
+    assert [e["type"] for e in events].count("song.failed") == 1
+
+
+def test_the_retries_wait_between_tries(db, settings, room, monkeypatch):
+    from karaoke.worker import main
+
+    waits = []
+    monkeypatch.setattr(main.time, "sleep", waits.append)
+    add(db, settings, room, A)
+    pipeline = Pipeline(fail_at="metadata")
+    Worker(settings, db, lambda event: None, stages=pipeline.stages, tick_s=3600).run(stop_when_idle=True)
+    assert waits == [3.0, 3.0, 3.0]
+
+
+def test_the_gpu_stages_are_not_tried_again(db, settings, room):
+    add(db, settings, room, A)
+    pipeline = Pipeline(fail_at="separation")
+    work, _ = worker(settings, db, pipeline)
+
+    work.run(stop_when_idle=True)
+
+    assert pipeline.calls.count("separation") == 1
+    assert get(db, Job, 1).attempts == 1
+
+
+def test_lrclib_down_is_tried_again_with_the_job_and_then_said_for_people(db, settings, room):
+    from karaoke.pipeline.lyrics import SITE_DOWN, LyricsSiteDown
+
+    add(db, settings, room, A)
+    pipeline = Pipeline()
+    runs = []
+
+    def stages() -> list[Stage]:
+        def down(ctx):
+            runs.append("lyrics")
+            raise LyricsSiteDown(SITE_DOWN)
+
+        return [stage if stage.name != "lyrics" else Stage("lyrics", down) for stage in pipeline.stages()]
+
+    Worker(settings, db, lambda event: None, stages=stages, retry_wait_s=0, tick_s=3600).run(stop_when_idle=True)
+
+    assert runs == ["lyrics"] * 4  # the first try and three more, as for a download
+    song = get(db, Song, A)
+    assert song.status == FAILED and song.error == SITE_DOWN  # no exception's name: a message for people
 
 
 def test_an_accepted_transcription_resumes_after_the_lyrics(db, settings, room):

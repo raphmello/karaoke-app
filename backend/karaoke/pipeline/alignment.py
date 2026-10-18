@@ -20,6 +20,7 @@ import numpy as np
 
 from karaoke.core.storage import read_json, write_json
 from karaoke.pipeline.gpu import free_gpu
+from karaoke.pipeline.progress import ALIGNMENT, follow, part
 
 log = logging.getLogger("karaoke.pipeline")
 
@@ -191,11 +192,14 @@ def align_line(model, audio: np.ndarray, line: dict, language: str | None) -> li
     return words or None
 
 
-def align_synced(model, vocals: str, stamps: list[dict], language: str | None) -> tuple[list[dict], dict]:
+def align_synced(model, vocals: str, stamps: list[dict], language: str | None,
+                 report=lambda fraction: None) -> tuple[list[dict], dict]:
+    """`report` follows the whole-song alignment (the first ~40%), then the lines one by one."""
     from whisper.audio import load_audio
 
     sung = [s for s in stamps if s["text"]]
-    whole = model.align(vocals, "\n".join(s["text"] for s in sung), language=language, original_split=True)
+    with follow(ALIGNMENT, part(report, 0.0, 0.4)):
+        whole = model.align(vocals, "\n".join(s["text"] for s in sung), language=language, original_split=True)
     # the alignment may return fewer segments than lines; the fit only needs the pairs it has
     pairs = [(stamp["t"], float(segment.start)) for stamp, segment in zip(sung, whole.segments, strict=False)]
     x = np.array([p[0] for p in pairs], dtype=float)
@@ -208,8 +212,9 @@ def align_synced(model, vocals: str, stamps: list[dict], language: str | None) -
     windows = skeleton(stamps, slope, intercept)
     moved = move_silent_lines(windows, voiced)
     lines = []
-    for line in windows:
+    for done, line in enumerate(windows, start=1):
         words = align_line(model, audio, line, language)
+        report(0.4 + 0.6 * done / len(windows))
         if words:
             lines.append(_line(line["start"], line["end"], words))
         else:
@@ -237,16 +242,21 @@ def run(ctx) -> dict:
     extra: dict = {}
 
     model = load_whisper(ctx.settings)
+    ctx.progress(0.1)  # the model is in memory; the rest follows the audio (pipeline/progress.py)
+    report = part(ctx.progress, 0.1, 1.0)
     try:
         if lyrics and lyrics["synced"]:
             mode, source = "lrc_skeleton", lyrics["source"]
-            lines, extra = align_synced(model, vocals, lyrics["lines"], language)
+            lines, extra = align_synced(model, vocals, lyrics["lines"], language, report)
         elif lyrics:
             mode, source = "whole_song", lyrics["source"]
-            lines = align_plain(model, vocals, [line["text"] for line in lyrics["lines"] if line["text"]], language)
+            with follow(ALIGNMENT, report):
+                lines = align_plain(model, vocals, [line["text"] for line in lyrics["lines"] if line["text"]],
+                                    language)
         else:
             mode, source = "transcription", "transcrita"
-            lines, language = transcribe(model, vocals)
+            with follow(ALIGNMENT, report):
+                lines, language = transcribe(model, vocals)
     finally:
         del model
         free_gpu()

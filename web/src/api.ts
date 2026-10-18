@@ -9,7 +9,7 @@ export type Song = {
   channel: string | null;
   duration_s: number | null;
   thumbnail_url: string | null;
-  status: string; // pending, awaiting_decision, processing, ready, failed, removed
+  status: string; // pending, awaiting_decision, processing, ready, failed, removed, purged
   stage: string | null;
   original_key: string | null;
   language: string | null;
@@ -17,6 +17,7 @@ export type Song = {
   alignment_confidence: number | null;
   error: string | null;
   media: { instrumental: string; vocals: string; lyrics: string; thumb: string; original: string | null } | null;
+  disk_bytes?: number | null; // in the removed list: what "Apagar de vez" frees
 };
 
 export type QueueEntry = {
@@ -165,6 +166,7 @@ export const api = {
     request<{ stages: string[] }>(`${song(videoId)}/reprocess`, send("POST", { stages })),
   removeSong: (videoId: string) => request<void>(song(videoId), send("DELETE")),
   restoreSong: (videoId: string) => request<void>(`${song(videoId)}/restore`, send("POST")),
+  purgeSong: (videoId: string) => request<{ freed_bytes: number }>(`${song(videoId)}/purge`, send("POST")),
   history: (videoId: string) => request<SongEvent[]>(`${song(videoId)}/history`),
   jobs: () => request<Job[]>("/api/jobs"),
   // Whether this browser is the host's: the jobs panel answers the host alone (the active room answers the TV too)

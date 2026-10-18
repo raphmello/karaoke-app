@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { api, type QueueEntry } from "../api";
 import { clampSemitones, keyLabel, MAX_SEMITONES, MIN_SEMITONES } from "../lib/keys";
-import { type Progress, songTitle, statusText } from "../lib/queue";
+import { liveProgress, type Progress, songTitle, statusText } from "../lib/queue";
 import { ConfirmButton } from "./ConfirmButton";
+import { ProgressBar } from "./ProgressBar";
 
 const small = "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-semibold hover:bg-zinc-700 disabled:opacity-40";
 
@@ -72,6 +73,12 @@ export function QueueList({
                   <p className={`text-xs ${entry.song.status === "failed" ? "text-red-400" : "text-zinc-500"}`}>
                     {statusText(entry, progress)}
                   </p>
+                  {liveProgress(entry, progress) && (
+                    <ProgressBar percent={liveProgress(entry, progress)!.progress} className="mt-1.5" />
+                  )}
+                  {!isHost && entry.song.status === "failed" && (
+                    <p className="text-xs text-zinc-400">Adicione de novo para tentar outra vez.</p>
+                  )}
                 </div>
                 {/* The song that is playing keeps its place, and nothing goes above it */}
                 {isHost && entry.status !== "playing" && (

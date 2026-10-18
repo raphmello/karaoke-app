@@ -9,8 +9,9 @@ import { loadNickname } from "../phone/identity";
 import { formatTime } from "../tv/time";
 import { PreviewBar, PreviewButton, previewSources, usePreview } from "./Preview";
 
-/** A song in the results or the library, with its two actions on the right: hear a preview, and add it to the
- *  queue (which opens who sings and the starting key). Tapping the card also opens the add form. */
+/** A song in the results or the library, with its two actions: hear a preview, and add it to the queue (which opens
+ *  who sings and the starting key). Tapping the card also opens the add form. Where the list is narrow (the TV's
+ *  menu, a phone), the actions go under the song, so its name and artist keep the whole width. */
 function SongRow({
   sources,
   thumbnail,
@@ -28,46 +29,33 @@ function SongRow({
 }) {
   const preview = usePreview(sources);
   return (
-    <li className={`rounded-xl bg-zinc-900 p-3 ${picked ? "ring-1 ring-amber-400" : ""}`}>
-      <div className="flex items-center gap-2 sm:gap-3">
+    <li className={`@container rounded-xl bg-zinc-800/60 p-3 ring-1 ${picked ? "ring-amber-400" : "ring-zinc-700/70"}`}>
+      <div className="flex flex-col gap-3 @md:flex-row @md:items-center">
         <button className="flex min-w-0 flex-1 gap-3 text-left" onClick={onPick}>
-          <img src={thumbnail ?? undefined} alt="" className="h-12 w-16 shrink-0 rounded-lg object-cover sm:h-14 sm:w-24" />
+          <img src={thumbnail ?? undefined} alt="" className="h-12 w-16 shrink-0 rounded-lg object-cover @md:h-14 @md:w-24" />
           <span className="min-w-0">{details}</span>
         </button>
-        <Labeled label={preview.state === "playing" ? "Pausar" : "Ouvir"}>
+        <div className="flex shrink-0 justify-end gap-2">
           <PreviewButton preview={preview} />
-        </Labeled>
-        <Labeled label={picked ? "Fechar" : "Adicionar"}>
           <button
             type="button"
             onClick={onPick}
             aria-label={picked ? "Fechar sem adicionar" : "Adicionar à fila"}
             aria-expanded={picked}
-            className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full ${
+            className={`flex h-10 shrink-0 items-center gap-1.5 rounded-full px-4 text-sm font-bold ${
               picked ? "bg-zinc-700 text-zinc-100" : "bg-amber-400 text-zinc-950 hover:bg-amber-300"
             }`}
           >
-            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
               {picked ? <path d="M6 6l12 12M18 6L6 18" /> : <path d="M12 5v14M5 12h14" />}
             </svg>
+            <span aria-hidden="true">{picked ? "Fechar" : "Adicionar"}</span>
           </button>
-        </Labeled>
+        </div>
       </div>
       <PreviewBar preview={preview} />
       {children}
     </li>
-  );
-}
-
-/** A round button with its name under it, so the icon doesn't have to explain itself. */
-function Labeled({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex w-12 shrink-0 flex-col items-center gap-1 sm:w-14">
-      {children}
-      <span className="text-[11px] leading-none text-zinc-400" aria-hidden="true">
-        {label}
-      </span>
-    </div>
   );
 }
 
@@ -100,7 +88,7 @@ export function Search({ code, onAdded }: { code: string; onAdded: (title: strin
       </form>
       {results.isFetching && <p className="text-zinc-400">Buscando…</p>}
       {results.isError && <p className="text-red-400">{results.error.message}</p>}
-      <ul className="flex flex-col gap-2">
+      <ul className="flex flex-col gap-3">
         {results.data?.map((result) => (
           <SongRow
             key={result.video_id}
@@ -148,7 +136,7 @@ export function Library({ code, onAdded }: { code: string; onAdded: (title: stri
       />
       {songs.isError && <p className="text-red-400">{songs.error.message}</p>}
       {songs.data?.length === 0 && <p className="text-zinc-400">Nenhuma música pronta{q ? " com esse nome" : ""}.</p>}
-      <ul className="flex flex-col gap-2">
+      <ul className="flex flex-col gap-3">
         {songs.data?.map((song) => (
           <SongRow
             key={song.video_id}

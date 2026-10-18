@@ -6,9 +6,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { ApiError, api, onSessionLost, retryWhileRestarting, type QueueEntry, type RoomInfo } from "../api";
 import { keyLabel } from "../lib/keys";
-import { type Next, nextEntry, songTitle, statusText } from "../lib/queue";
+import { liveProgress, type Next, nextEntry, songTitle, statusText } from "../lib/queue";
 import { AudioEngine } from "../player/engine";
+import { ProgressBar } from "../room/ProgressBar";
 import { type Command, useRoom } from "../room/useRoom";
+import { type Failure, FailedSongs } from "./FailedSongs";
 import { useCompact } from "./compact";
 import { JoinQr } from "./JoinQr";
 import { useLook } from "./look";
@@ -301,8 +303,18 @@ function TvQueue({
     send.current({ type: "player.state", entry_id: null, position: 0, paused: true, semitones: 0 });
   }, []);
 
+  // Songs that could not be prepared: a notice each, named from the queue while it has them
+  const [failures, setFailures] = useState<Failure[]>([]);
+  const queued = useRef<QueueEntry[] | null>(null);
+  const dismissFailure = useCallback((key: number) => setFailures((all) => all.filter((f) => f.key !== key)), []);
+
   const live = useRoom(room.code, {
     tv: true,
+    onSongFailed: (videoId) => {
+      const entry = queued.current?.find((e) => e.video_id === videoId);
+      const failure = { key: Date.now(), videoId, title: entry ? songTitle(entry.song) : null };
+      setFailures((all) => [...all.filter((f) => f.videoId !== videoId), failure]);
+    },
     onCommand: (command) => {
       if (command.action === "skip") end();
       else if (command.action === "key" && command.semitones !== undefined) setSemitones(command.semitones);
@@ -311,6 +323,8 @@ function TvQueue({
     },
   });
   send.current = live.send;
+  queued.current = live.entries;
+  const notices = <FailedSongs failures={failures} onDismiss={dismissFailure} />;
 
   // The socket closed because the session or the room is gone: check again (a 401 brings back the PIN).
   const queryClient = useQueryClient();
@@ -359,42 +373,48 @@ function TvQueue({
 
   if (current) {
     return (
-      <PlayerScreen
-        key={current.id}
-        song={current.song}
-        singer={current.singer_name ?? current.added_by}
-        engine={engine}
-        semitones={semitones}
-        onSemitones={(value) => {
-          setSemitones(value);
-          void api.change(room.code, current.id, { semitones: value }).catch(() => undefined);
-        }}
-        onSkip={() => void api.player(room.code, "skip").catch(end)}
-        onEnded={end}
-        onReport={report}
-        commands={commands}
-        corner={
-          closed ? undefined : compact ? (
-            <JoinQr room={room} size={72} />
-          ) : (
-            <JoinQr room={room} size={150} caption="Leia para entrar e escolher músicas" />
-          )
-        }
-        look={look}
-        onLook={changeLook}
-        upNext={
-          closed ? undefined : (
-            <UpNext next={nextEntry(entries?.filter((e) => e.id !== current.id) ?? [])} compact={compact} />
-          )
-        }
-        banner={closed ? <ClosedBanner room={room} /> : undefined}
-      />
+      <>
+        <PlayerScreen
+          key={current.id}
+          song={current.song}
+          singer={current.singer_name ?? current.added_by}
+          engine={engine}
+          semitones={semitones}
+          onSemitones={(value) => {
+            setSemitones(value);
+            void api.change(room.code, current.id, { semitones: value }).catch(() => undefined);
+          }}
+          onSkip={() => void api.player(room.code, "skip").catch(end)}
+          onEnded={end}
+          onReport={report}
+          commands={commands}
+          corner={
+            closed ? undefined : compact ? (
+              <JoinQr room={room} size={72} />
+            ) : (
+              <JoinQr room={room} size={150} caption="Leia para entrar e escolher músicas" />
+            )
+          }
+          look={look}
+          onLook={changeLook}
+          upNext={
+            closed ? undefined : (
+              <UpNext next={nextEntry(entries?.filter((e) => e.id !== current.id) ?? [])} compact={compact} />
+            )
+          }
+          banner={closed ? <ClosedBanner room={room} /> : undefined}
+        />
+        {notices}
+      </>
     );
   }
   if (closed) return <ClosedNotice room={room} />;
   if (upcoming) {
     return (
-      <BetweenSongs room={room} entry={upcoming} left={left} held={held} connected={live.connected} compact={compact} />
+      <>
+        <BetweenSongs room={room} entry={upcoming} left={left} held={held} connected={live.connected} compact={compact} />
+        {notices}
+      </>
     );
   }
   return (
@@ -405,6 +425,9 @@ function TvQueue({
           <p className="text-xl text-zinc-400">
             {next.entry.singer_name ?? next.entry.added_by} · {statusText(next.entry, live.progress)}
           </p>
+          {liveProgress(next.entry, live.progress) && (
+            <ProgressBar percent={liveProgress(next.entry, live.progress)!.progress} className="h-3 w-full max-w-xl" />
+          )}
         </>
       ) : (
         <>
@@ -414,6 +437,7 @@ function TvQueue({
       )}
       <JoinQr room={room} size={260} />
       {!live.connected && <p className="text-amber-300">Reconectando ao servidor…</p>}
+      {notices}
     </Centered>
   );
 }

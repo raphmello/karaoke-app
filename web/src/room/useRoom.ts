@@ -9,7 +9,14 @@ export type Command = { action: "play" | "pause" | "skip" | "key" | "guide" | "d
 
 const GONE = new Set([4401, 4403, 4404]); // no cookie, another room, room closed: reconnecting won't help
 
-export function useRoom(code: string | null, options: { tv?: boolean; onCommand?: (command: Command) => void } = {}) {
+export function useRoom(
+  code: string | null,
+  options: {
+    tv?: boolean;
+    onCommand?: (command: Command) => void;
+    onSongFailed?: (videoId: string) => void; // a song could not be prepared, after the worker's own retries
+  } = {},
+) {
   const [entries, setEntries] = useState<QueueEntry[] | null>(null);
   const [playerState, setPlayerState] = useState<PlayerState | null>(null);
   const [progress, setProgress] = useState<Progress>({});
@@ -19,6 +26,8 @@ export function useRoom(code: string | null, options: { tv?: boolean; onCommand?
   const socket = useRef<WebSocket | null>(null);
   const onCommand = useRef(options.onCommand);
   onCommand.current = options.onCommand;
+  const onSongFailed = useRef(options.onSongFailed);
+  onSongFailed.current = options.onSongFailed;
 
   useEffect(() => {
     if (!code) return;
@@ -47,11 +56,17 @@ export function useRoom(code: string | null, options: { tv?: boolean; onCommand?
             onCommand.current?.(message);
             break;
           case "song.progress":
-            setProgress((p) => ({ ...p, [message.video_id]: { stage: message.stage, progress: message.progress } }));
+            setProgress((p) => ({
+              ...p,
+              [message.video_id]: { stage: message.stage, progress: message.progress, eta_s: message.eta_s },
+            }));
             break;
           case "song.ready":
+            setProgress(({ [message.video_id]: _, ...rest }) => rest);
+            break;
           case "song.failed":
             setProgress(({ [message.video_id]: _, ...rest }) => rest);
+            onSongFailed.current?.(message.video_id);
             break;
           case "song.lyrics_missing":
             setQuestion({ video_id: message.video_id, entries: message.entries });

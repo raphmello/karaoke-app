@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { QueueEntry, Song } from "../src/api";
-import { nextEntry, statusText } from "../src/lib/queue";
+import { formatEta, liveProgress, nextEntry, statusText } from "../src/lib/queue";
 
 let id = 0;
 const entry = (status: string, songStatus: string, extra: Partial<Song> = {}): QueueEntry => ({
@@ -53,6 +53,25 @@ test("the status line says what is happening", () => {
   expect(statusText(live, { [live.video_id]: { stage: "alignment", progress: 62 } })).toBe("Sincronizando a letra · 62%");
   expect(statusText(entry("awaiting_decision", "awaiting_decision"), {})).toBe("Letra não encontrada: aguardando resposta");
   expect(statusText(entry("queued", "failed", { error: "boom" }), {})).toBe("Erro no processamento: boom");
+});
+
+test("the status line says how far the preparation is and how long is left", () => {
+  const live = entry("queued", "processing");
+  const progress = { [live.video_id]: { stage: "separation", progress: 37, eta_s: 95 } };
+  expect(statusText(live, progress)).toBe("Separando a voz · 37% · falta ~2 min");
+  expect(liveProgress(live, progress)?.progress).toBe(37);
+  expect(liveProgress(entry("queued", "ready"), progress)).toBeNull(); // the bar shows only while it is prepared
+  expect(statusText(entry("queued", "pending"), {})).toBe("Na fila para ser preparada");
+});
+
+test("the time left is never a precise second, which would only jump about", () => {
+  expect([formatEta(10), formatEta(45), formatEta(80), formatEta(400), formatEta(undefined)]).toEqual([
+    "quase pronta",
+    "falta menos de 1 min",
+    "falta ~1 min",
+    "falta ~7 min",
+    "",
+  ]);
 });
 
 test("a song too long for the TV is skipped, and says why", () => {

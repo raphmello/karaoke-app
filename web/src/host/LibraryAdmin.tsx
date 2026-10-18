@@ -38,6 +38,11 @@ export function LibraryAdmin() {
   );
 }
 
+/** "55 MB": what a song's files take, said for people. */
+function megabytes(bytes: number | null | undefined): string {
+  return `${Math.max(1, Math.round((bytes ?? 0) / 1_000_000))} MB`;
+}
+
 function SongRow({ song }: { song: Song }) {
   const queryClient = useQueryClient();
   const [panel, setPanel] = useState<Panel>(null);
@@ -76,9 +81,22 @@ function SongRow({ song }: { song: Song }) {
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
         {removed ? (
-          <button className={small} onClick={() => run(() => api.restoreSong(song.video_id), "Remoção desfeita.")}>
-            Desfazer remoção
-          </button>
+          <>
+            <button className={small} onClick={() => run(() => api.restoreSong(song.video_id), "Remoção desfeita.")}>
+              Desfazer remoção
+            </button>
+            <ConfirmButton
+              className={`${small} text-red-300`}
+              label="Apagar de vez"
+              confirmLabel={`Apagar de vez e liberar ${megabytes(song.disk_bytes)} (não dá para desfazer)`}
+              onConfirm={() =>
+                void run(async () => {
+                  await api.purgeSong(song.video_id);
+                  void queryClient.invalidateQueries({ queryKey: ["disk"] });
+                }, "")
+              }
+            />
+          </>
         ) : (
           <>
             <button className={small} onClick={() => toggle("lyrics")}>
@@ -169,6 +187,8 @@ const EVENTS: Record<string, string> = {
   ready: "Pronta",
   removed: "Removida",
   reactivated: "Reativada",
+  retried: "Tentada de novo",
+  purged: "Apagada de vez",
 };
 
 function History({ videoId }: { videoId: string }) {
