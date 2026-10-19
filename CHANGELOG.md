@@ -2,6 +2,22 @@
 
 As mudanças de cada release do Karaokê, da mais nova para a mais antiga. As versões seguem o formato `ANO.MAJOR.MINOR`, e cada release tem um branch `release/<versão>` e uma tag `v<versão>`.
 
+## [2026.1.11] - 2026-10-18
+
+### Novidades
+
+- **Menu lateral novo na TV:** o ☰ Menu abre uma barra de ícones (Sala e Painel; Ver salas e Sair do admin) e o painel ao lado, com um visual novo. A Sala junta Fila e Adicionar e mostra o nome, o código e quanto falta para a sala expirar.
+- **Busca única em Adicionar:** procura no acervo a cada tecla e no YouTube depois de uma pausa, com 3 resultados e "Mostrar mais". Uma música que já está no acervo aparece só lá.
+- **Arrastar para mudar a ordem da fila:** o host e o dono da sala seguram a música pela alça e soltam onde quiserem.
+- **Painel com abas Disco, Jobs e Acervo:** Jobs mostra o que está em andamento, o que espera e o histórico; o antigo Gerenciar Acervo virou a aba Acervo.
+- **Barra de controles flutuante na TV:** fica sobre o vídeo e some depois de 3 segundos tocando, deixando só uma linha fina de progresso. A bandeja dela tem a voz guia, o atraso da letra (agora dá para digitar, como 0,25), a imagem de fundo e a borda na letra.
+- **Tocando agora e A seguir** se revezam no canto de cima do vídeo, a cada 3 segundos. O "A seguir" não fica mais em cima da letra.
+- **Celular com o visual novo:** a lista de salas, criar sala, a entrada, a tela do convidado e a do host. O dono da sala e o host têm os controles do player no cartão "Cantando agora"; o `/host` navega por uma barra no rodapé, com Salas e Painel.
+
+### Correções
+
+- **Zoom ao tocar num campo no iPhone:** o Safari não dá mais zoom nem corta a tela ao tocar na busca ou em outro campo.
+
 ## [2026.1.10] - 2026-10-18
 
 ### Mudanças
