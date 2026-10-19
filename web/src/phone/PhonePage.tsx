@@ -1,27 +1,21 @@
-// /m/<code>: the guest's phone. Its one tab, "Sala", has the same two sub-tabs as the TV's menu and the host's
-// screen: "Adicionar Música" (search YouTube or the library and add songs, with the key they start in) and "Fila"
-// (follow the queue, change the key of one's own entries, remove them and answer the transcription question).
-// The room's owner also runs its queue and, above it, the player, and may delete the room. "Abrir como TV" makes
-// this phone the room's TV (with the room's password, when it has one and this is not its owner); "Ver salas" goes
-// back to the list.
+// /m/<code>: the guest's phone (docs/ARCHITECTURE.md, "Telas do celular"): only the Sala, with the same Fila and
+// Adicionar as the TV's menu. In Adicionar, one search for the library and YouTube, and the song goes in with the
+// key it starts in; in the Fila, the guest changes the key of their own songs, removes them and answers the
+// transcription question. The room's owner also runs its whole queue and, in "Cantando agora", the player, and may
+// delete the room. "Abrir como TV" makes this phone the room's TV; "Ver salas" goes back to the list.
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { api, onSessionLost } from "../api";
-import { AddSong } from "../room/AddSongs";
-import { DeleteRoomButton } from "../room/DeleteRoom";
-import { ExpiresIn } from "../room/Expiry";
-import { OpenTvButton } from "../tv/OpenTv";
-import { PlayerControls } from "../room/PlayerControls";
-import { QueueList } from "../room/QueueList";
-import { type RoomTab, RoomTabsNav } from "../room/RoomTabs";
 import { useRoom } from "../room/useRoom";
+import { SalaPanel, type SalaTab } from "../tv/menu/SalaPanel";
+import { OpenTvButton } from "../tv/OpenTv";
 import { loadNickname } from "./identity";
+import { MobileFrame, smallAction } from "./MobileShell";
 
 export function PhonePage({ code }: { code: string }) {
   const room = useRoom(code);
   const info = useQuery({ queryKey: ["room", code], queryFn: () => api.room(code) });
-  const [tab, setTab] = useState<RoomTab>("add"); // a guest comes to add a song
-  const [notice, setNotice] = useState<string | null>(null);
+  const [tab, setTab] = useState<SalaTab>("adicionar"); // a guest comes to add a song
 
   // Without a cookie of this room, the phone joins first: on a closed socket or any request the API refuses.
   useEffect(() => {
@@ -29,79 +23,56 @@ export function PhonePage({ code }: { code: string }) {
   }, [room.closedWith, code]);
   useEffect(() => onSessionLost(() => location.replace(`/j/${code}`)), [code]);
 
-  const added = (title: string) => {
-    setNotice(`"${title}" entrou na fila.`); // the phone stays where it is: only the notice
-    window.setTimeout(() => setNotice(null), 4000);
-  };
   const waiting = room.entries?.filter((e) => e.mine && e.status === "awaiting_decision").length ?? 0;
+  const manage = info.data?.manage ?? false;
 
   if (room.closedWith === 4404) {
     return (
-      <div className="flex flex-col items-center gap-4 px-4 py-12 text-center">
-        <p className="text-zinc-400">Esta sala foi encerrada.</p>
-        <a className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950" href="/">
-          Ver salas
-        </a>
-      </div>
-    );
-  }
-  return (
-    <div className="mx-auto flex min-h-full max-w-xl flex-col">
-      {/* Solid, so the list never shows through it while scrolling */}
-      <header className="sticky top-0 z-10 border-b border-zinc-800 bg-[#0b0b12] px-4 pt-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="truncate text-xl font-bold">{info.data?.name ?? "Karaokê"}</h1>
-            <p className="text-sm text-zinc-400">
-              {loadNickname() || "Convidado"}
-              {info.data?.mine ? " · dono da sala" : ""} · sala {code.toUpperCase()}
-              {info.data && (
-                <>
-                  {" · "}
-                  <ExpiresIn when={info.data.expires_at} />
-                </>
-              )}
-              {!room.connected && " · reconectando…"}
-            </p>
-          </div>
-          <a className="shrink-0 rounded-lg px-2 py-1 text-sm text-zinc-400 underline hover:text-zinc-200" href="/">
+      <MobileFrame>
+        <div className="flex flex-col items-center gap-4 px-4 py-12 text-center">
+          <p className="text-(--menu-text-3)">Esta sala foi encerrada.</p>
+          <a className={smallAction} href="/">
             Ver salas
           </a>
         </div>
-        {info.data && (
-          <div className="mt-3 flex flex-wrap items-start gap-2">
-            <span className="flex-1 [&>span]:w-full">
-              <OpenTvButton
-                room={info.data}
-                className="w-full rounded-lg bg-zinc-800 px-3 py-2 text-center text-sm font-semibold hover:bg-zinc-700"
-              />
-            </span>
-            {info.data.manage && <DeleteRoomButton code={code} onDeleted={() => location.assign("/")} />}
-          </div>
-        )}
-        <div className="mt-3 pb-3">
-          <p className="mb-2 text-sm font-semibold tracking-widest text-amber-300 uppercase">Sala</p>
-          <RoomTabsNav value={tab} onChange={setTab} count={room.entries?.length} />
-        </div>
-        {waiting > 0 && tab !== "queue" && (
-          <button className="mb-3 w-full rounded-lg bg-amber-950 px-3 py-2 text-left text-sm text-amber-200" onClick={() => setTab("queue")}>
-            Uma música sua precisa de resposta sobre a letra. Toque para ver.
-          </button>
-        )}
-        {notice && <p className="mb-3 rounded-lg bg-emerald-950 px-3 py-2 text-sm text-emerald-200">{notice}</p>}
-      </header>
-      <main className="flex-1 px-4 pt-4 pb-8">
-        {tab === "add" ? (
-          <AddSong code={code} onAdded={added} />
-        ) : room.entries ? (
-          <div className="flex flex-col gap-4">
-            {info.data?.manage && <PlayerControls code={code} entries={room.entries} playerState={room.playerState} />}
-            <QueueList code={code} entries={room.entries} progress={room.progress} isHost={info.data?.manage ?? false} />
-          </div>
-        ) : (
-          <p className="py-8 text-center text-zinc-400">Carregando a fila…</p>
-        )}
-      </main>
-    </div>
+      </MobileFrame>
+    );
+  }
+  return (
+    <MobileFrame>
+      <SalaPanel
+        room={info.data ?? null}
+        live={room}
+        tab={tab}
+        onTab={setTab}
+        manage={manage}
+        controls={manage}
+        aside={
+          <span className="truncate text-[12px] font-normal text-(--menu-text-3)">
+            {loadNickname() || "Convidado"}
+            {info.data?.mine ? " · dono" : ""}
+          </span>
+        }
+        actions={
+          info.data && (
+            <>
+              <OpenTvButton room={info.data} className={smallAction} />
+              <a className={smallAction} href="/">
+                Ver salas
+              </a>
+            </>
+          )
+        }
+        onDeleted={() => location.assign("/")}
+      />
+      {waiting > 0 && tab !== "fila" && (
+        <button
+          className="mx-[14px] mb-3 rounded-[10px] bg-(--menu-accent-soft) px-3 py-2 text-left text-[12px] text-(--menu-accent)"
+          onClick={() => setTab("fila")}
+        >
+          Uma música sua precisa de resposta sobre a letra. Toque para ver.
+        </button>
+      )}
+    </MobileFrame>
   );
 }

@@ -12,6 +12,7 @@ import { ProgressBar } from "../room/ProgressBar";
 import { type Command, useRoom } from "../room/useRoom";
 import { type Failure, FailedSongs } from "./FailedSongs";
 import { useCompact } from "./compact";
+import { CornerCard } from "./CornerCard";
 import { JoinQr } from "./JoinQr";
 import { useLook } from "./look";
 import { engineTaken, handedEngine } from "./OpenTv";
@@ -372,6 +373,7 @@ function TvQueue({
   );
 
   if (current) {
+    const following = nextEntry(entries?.filter((e) => e.id !== current.id) ?? []);
     return (
       <>
         <PlayerScreen
@@ -397,11 +399,7 @@ function TvQueue({
           }
           look={look}
           onLook={changeLook}
-          upNext={
-            closed ? undefined : (
-              <UpNext next={nextEntry(entries?.filter((e) => e.id !== current.id) ?? [])} compact={compact} />
-            )
-          }
+          upNext={closed || following.kind === "empty" ? undefined : <UpNext next={following} compact={compact} />}
           banner={closed ? <ClosedBanner room={room} /> : undefined}
         />
         {notices}
@@ -512,15 +510,10 @@ function UpNext({ next, compact }: { next: Next; compact: boolean }) {
     );
   }
   return (
-    <div className="max-w-sm rounded-xl bg-black/60 px-4 py-3 backdrop-blur-sm">
-      <p className="text-xs font-semibold tracking-widest text-amber-300 uppercase">
-        A seguir{next.kind === "wait" ? " · preparando" : ""}
-      </p>
-      <p className="truncate text-2xl font-bold">{entry.singer_name ?? entry.added_by}</p>
-      <p className="truncate text-zinc-300">
-        {songTitle(entry.song)}
-        {entry.song.artist ? ` · ${entry.song.artist}` : ""}
-      </p>
-    </div>
+    <CornerCard
+      label={`A seguir${next.kind === "wait" ? " · preparando" : ""}`}
+      name={entry.singer_name ?? entry.added_by}
+      detail={`${songTitle(entry.song)}${entry.song.artist ? ` · ${entry.song.artist}` : ""}`}
+    />
   );
 }

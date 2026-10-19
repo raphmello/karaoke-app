@@ -65,7 +65,7 @@ export function OpenTvButton({ room, className }: { room: RoomInfo; className: s
       <button type="button" className={className} onClick={() => void open()} disabled={busy}>
         Abrir como TV
       </button>
-      {error && <span className="text-sm text-red-400">{error}</span>}
+      {error && <span className="text-[12px] text-(--menu-err)">{error}</span>}
       {asking && <PasswordDialog room={room} onClose={() => setAsking(false)} />}
     </span>
   );
@@ -103,30 +103,27 @@ function PasswordDialog({ room, onClose }: { room: RoomInfo; onClose: () => void
         role="dialog"
         aria-modal="true"
         aria-labelledby="open-tv-title"
-        className="flex w-full max-w-sm flex-col gap-4 rounded-2xl bg-zinc-900 p-6 text-left ring-1 ring-zinc-700"
+        className="flex w-full max-w-sm flex-col gap-3.5 rounded-2xl bg-(--menu-field) p-6 text-left text-[13px] text-(--menu-text) shadow-[0_8px_30px_rgba(0,0,0,.5)]"
       >
-        <h2 id="open-tv-title" className="text-xl font-bold">
+        <h2 id="open-tv-title" className="text-[17px] font-medium">
           Abrir {room.name ?? `a sala ${room.code}`} como TV
         </h2>
-        <p className="text-sm text-zinc-400">Digite a senha da sala.</p>
+        <p className="text-(--menu-text-3)">Digite a senha da sala.</p>
         <input
           type="password"
           autoFocus
           maxLength={64}
-          className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-base text-zinc-100 outline-none focus:border-amber-400"
+          className="rounded-[9px] border border-(--menu-input-line) bg-(--menu-input) px-3 py-2 text-[13px] text-(--menu-text) outline-none placeholder:text-(--menu-text-off) focus:border-(--menu-accent)"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
           aria-label="Senha da sala"
         />
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && <p className="text-[12px] text-(--menu-err)">{error}</p>}
         <div className="flex justify-end gap-2">
-          <button type="button" className="rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700" onClick={onClose}>
+          <button type="button" className="rounded-[9px] bg-(--menu-btn) px-[14px] py-2 text-[13px] font-medium text-(--menu-text) hover:bg-(--menu-btn-hover) disabled:opacity-40" onClick={onClose}>
             Cancelar
           </button>
-          <button
-            className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950 disabled:opacity-50"
-            disabled={busy || !password}
-          >
+          <button className="rounded-[10px] bg-(--menu-accent) px-[14px] py-[9px] text-[13px] font-medium text-(--menu-on-accent) hover:brightness-105 disabled:opacity-60" disabled={busy || !password}>
             Abrir
           </button>
         </div>

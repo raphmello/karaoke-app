@@ -1,119 +1,16 @@
-// The host's library: change the lyrics, reprocess stages, remove songs for good (their files leave the disk)
-// and see their history.
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+// The library's pieces for Painel → Acervo (tv/menu/PainelPanel.tsx): change the lyrics, reprocess stages and see a
+// song's history.
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, type Song } from "../api";
-import { keyName, parseKey } from "../lib/keys";
-import { songTitle, STAGE_NAMES } from "../lib/queue";
-import { ConfirmButton } from "../room/ConfirmButton";
-import { formatTime } from "../tv/time";
-
-const small = "rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-semibold hover:bg-zinc-700 disabled:opacity-40";
-type Panel = "lyrics" | "reprocess" | "history" | null;
-
-export function LibraryAdmin() {
-  const [q, setQ] = useState("");
-  const songs = useQuery({ queryKey: ["library", q], queryFn: () => api.library(q) });
-
-  return (
-    <section className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <input
-          className="min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 outline-none focus:border-amber-400"
-          placeholder="Buscar no acervo"
-          value={q}
-          onChange={(event) => setQ(event.target.value)}
-        />
-      </div>
-      {songs.isError && <p className="text-red-400">{songs.error.message}</p>}
-      {songs.data?.length === 0 && <p className="text-zinc-400">Nenhuma música no acervo.</p>}
-      <ul className="flex flex-col gap-3">
-        {songs.data?.map((song) => <SongRow key={song.video_id} song={song} />)}
-      </ul>
-    </section>
-  );
-}
+import { api } from "../api";
+import { STAGE_NAMES } from "../lib/queue";
 
 /** "55 MB": what a song's files take, said for people. */
-function megabytes(bytes: number | null | undefined): string {
+export function megabytes(bytes: number | null | undefined): string {
   return `${Math.max(1, Math.round((bytes ?? 0) / 1_000_000))} MB`;
 }
 
-function SongRow({ song }: { song: Song }) {
-  const queryClient = useQueryClient();
-  const [panel, setPanel] = useState<Panel>(null);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
-  const key = parseKey(song.original_key);
-
-  const run = async (action: () => Promise<unknown>, done: string) => {
-    setMessage(null);
-    try {
-      await action();
-      if (done) setMessage({ ok: true, text: done });
-      setPanel(null);
-      void queryClient.invalidateQueries({ queryKey: ["library"] });
-      void queryClient.invalidateQueries({ queryKey: ["jobs"] });
-    } catch (e) {
-      setMessage({ ok: false, text: (e as Error).message });
-    }
-  };
-  const toggle = (next: Panel) => setPanel((current) => (current === next ? null : next));
-
-  return (
-    <li className="rounded-xl bg-zinc-900 p-3">
-      <div className="flex gap-3">
-        <img src={song.thumbnail_url ?? undefined} alt="" className="h-14 w-24 shrink-0 rounded-lg object-cover" />
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold">{songTitle(song)}</p>
-          <p className="truncate text-sm text-zinc-400">{song.artist ?? song.channel}</p>
-          <p className="text-xs text-zinc-500">
-            {song.duration_s ? formatTime(song.duration_s) : ""}
-            {key ? ` · ${keyName(key)}` : ""}
-            {song.lyrics_source ? ` · letra: ${song.lyrics_source}` : ""}
-            {song.alignment_confidence !== null ? ` · confiança ${Math.round(song.alignment_confidence * 100)}%` : ""}
-          </p>
-        </div>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button className={small} onClick={() => toggle("lyrics")}>
-          Trocar letra
-        </button>
-        <button className={small} onClick={() => toggle("reprocess")}>
-          Reprocessar
-        </button>
-        <ConfirmButton
-          className={`${small} text-red-300`}
-          label="Remover"
-          confirmLabel={`Remover e liberar ${megabytes(song.disk_bytes)} (não dá para desfazer)`}
-          onConfirm={() =>
-            void run(async () => {
-              await api.removeSong(song.video_id);
-              void queryClient.invalidateQueries({ queryKey: ["disk"] });
-            }, "")
-          }
-        />
-        <button className={small} onClick={() => toggle("history")}>
-          Histórico
-        </button>
-      </div>
-      {message && <p className={`mt-2 text-sm ${message.ok ? "text-emerald-300" : "text-red-400"}`}>{message.text}</p>}
-      {panel === "lyrics" && <LyricsForm onSubmit={(text) => run(() => api.replaceLyrics(song.video_id, text), "Letra trocada; o alinhamento roda de novo.")} />}
-      {panel === "reprocess" && (
-        <ReprocessForm
-          onSubmit={(stages) =>
-            run(async () => {
-              const result = await api.reprocess(song.video_id, stages);
-              setMessage({ ok: true, text: `Vai refazer: ${result.stages.map((s) => STAGE_NAMES[s] ?? s).join(", ") || "tudo o que faltava"}.` });
-            }, "")
-          }
-        />
-      )}
-      {panel === "history" && <History videoId={song.video_id} />}
-    </li>
-  );
-}
-
-function LyricsForm({ onSubmit }: { onSubmit: (text: string) => void }) {
+export function LyricsForm({ onSubmit }: { onSubmit: (text: string) => void }) {
   const [text, setText] = useState("");
   return (
     <div className="mt-3 flex flex-col gap-2">
@@ -134,7 +31,7 @@ function LyricsForm({ onSubmit }: { onSubmit: (text: string) => void }) {
   );
 }
 
-function ReprocessForm({ onSubmit }: { onSubmit: (stages: string[]) => void }) {
+export function ReprocessForm({ onSubmit }: { onSubmit: (stages: string[]) => void }) {
   const [stages, setStages] = useState<string[]>([]);
   return (
     <div className="mt-3 flex flex-col gap-2">
@@ -170,7 +67,7 @@ const EVENTS: Record<string, string> = {
   purged: "Apagada de vez",
 };
 
-function History({ videoId }: { videoId: string }) {
+export function History({ videoId }: { videoId: string }) {
   const events = useQuery({ queryKey: ["history", videoId], queryFn: () => api.history(videoId) });
   if (events.isPending) return <p className="mt-3 text-sm text-zinc-400">Carregando…</p>;
   if (events.isError) return <p className="mt-3 text-sm text-red-400">{events.error.message}</p>;

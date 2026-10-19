@@ -5,9 +5,11 @@ import { clampSemitones, keyLabel, MAX_SEMITONES, MIN_SEMITONES } from "../lib/k
 import { songTitle } from "../lib/queue";
 import type { AudioEngine } from "../player/engine";
 import { useCompact } from "./compact";
+import { Alternating, CornerCard } from "./CornerCard";
 import type { Look } from "./look";
 import type { Command } from "../room/useRoom";
 import { Lyrics } from "./Lyrics";
+import { FloatingBar } from "./controls/FloatingBar";
 import { formatTime } from "./time";
 
 const DELAY_KEY = "karaoke.tv.delayMs"; // the manual lyrics delay is saved in this browser
@@ -28,9 +30,6 @@ function saveDelay(ms: number): void {
     // private window: the delay lasts only this session
   }
 }
-
-const button =
-  "rounded-lg bg-zinc-800 px-4 py-2 text-lg font-semibold hover:bg-zinc-700 disabled:opacity-40 disabled:hover:bg-zinc-800";
 
 export type PlayerReport = { position: number; paused: boolean };
 
@@ -65,7 +64,7 @@ export function PlayerScreen({
   banner?: ReactNode; // a notice across the top, over the song (the room closed)
   look: Look;
   onLook: (change: Partial<Look>) => void;
-  upNext?: ReactNode; // who sings next, in a corner over the lyrics
+  upNext?: ReactNode; // who sings next: taking turns with the song playing, in the corner (on a phone, under the lyrics)
 }) {
   const media = song.media!;
   // Keyed by the address, which carries the song's version: a reprocessed song brings its new lyrics
@@ -77,6 +76,7 @@ export function PlayerScreen({
   const [delayMs, setDelayMs] = useState(loadDelay);
   const [clock, setClock] = useState({ position: 0, lyrics: 0 });
   const compact = useCompact(); // the TV on a phone: its own layout; larger screens keep the TV's
+  const region = useRef<HTMLDivElement>(null); // the video, where moving the mouse shows the floating bar
   const [settings, setSettings] = useState(false); // on a phone, guide voice, delay and look fold away
   const delayRef = useRef(delayMs);
   delayRef.current = delayMs;
@@ -312,24 +312,31 @@ export function PlayerScreen({
     );
   }
 
+  // Larger screens: the floating bar over the video (tv/controls/FloatingBar.tsx), which takes no room from it
   return (
-    <div className="relative flex h-full flex-col overflow-hidden">
+    <div ref={region} className="relative flex h-full flex-col overflow-hidden">
       {look.background && <Backdrop videoId={song.video_id} fallback={media.thumb} />}
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
         {banner}
         <header className="flex items-start justify-between gap-4 px-6 py-4">
+          {/* Tocando agora and A seguir take turns in the corner (tv/CornerCard.tsx), off the lyrics */}
           <div className="min-w-0">
-            <p className="truncate text-2xl font-semibold">{title}</p>
-            <p className="truncate text-zinc-400">
-              {singer} · {song.artist ?? song.channel}
-              {song.lyrics_source === "transcrita" ? " · letra transcrita automaticamente" : ""}
-            </p>
+            <Alternating
+              cards={[
+                <CornerCard
+                  key="now"
+                  label={`Tocando agora${song.lyrics_source === "transcrita" ? " · letra transcrita" : ""}`}
+                  name={singer}
+                  detail={`${title} · ${song.artist ?? song.channel}`}
+                />,
+                ...(upNext ? [upNext] : []),
+              ]}
+            />
           </div>
           {corner}
         </header>
 
         <main className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
-          {upNext && <div className="absolute bottom-4 left-6 z-10">{upNext}</div>}
           {loadError ? (
             <p className="text-2xl text-red-400">Não foi possível carregar a música: {loadError}</p>
           ) : !loaded || lyrics.isPending ? (
@@ -339,78 +346,25 @@ export function PlayerScreen({
           )}
         </main>
 
-        <footer className="flex flex-col gap-4 bg-zinc-950/80 px-6 py-4">
-          <div className="flex items-center gap-4">
-            <button className={`${button} w-28`} onClick={() => togglePlay()} disabled={!loaded}>
-              {playing ? "Pausar" : "Tocar"}
-            </button>
-            <button className={button} onClick={onSkip}>
-              Pular
-            </button>
-            <span className="w-14 text-right tabular-nums text-zinc-400">{formatTime(clock.position)}</span>
-            <input
-              type="range"
-              className="flex-1 accent-amber-400"
-              min={0}
-              max={duration || 1}
-              step={0.1}
-              value={Math.min(clock.position, duration)}
-              onChange={(event) => engine.seek(Number(event.target.value))}
-              disabled={!loaded}
-              aria-label="Posição na música"
-            />
-            <span className="w-14 tabular-nums text-zinc-400">{formatTime(duration)}</span>
-          </div>
-
-          <div className="flex flex-wrap items-center justify-between gap-x-8 gap-y-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <button className={button} onClick={() => changeKey(semitones - 1)} disabled={semitones <= MIN_SEMITONES}>
-                −½ tom
-              </button>
-              <div className="min-w-64 text-center" aria-live="polite">
-                <p className="text-xl font-bold text-amber-300">{label.current}</p>
-                {label.original && <p className="text-sm text-zinc-400">{label.original}</p>}
-              </div>
-              <button className={button} onClick={() => changeKey(semitones + 1)} disabled={semitones >= MAX_SEMITONES}>
-                +½ tom
-              </button>
-              <button className={button} onClick={() => changeKey(0)} disabled={semitones === 0}>
-                Voltar ao tom original
-              </button>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-6 text-zinc-300">
-              <label className="flex items-center gap-3">
-                Voz guia
-                <input
-                  type="range"
-                  className="w-32 accent-amber-400"
-                  min={0}
-                  max={100}
-                  step={5}
-                  value={guide}
-                  onChange={(event) => changeGuide(Number(event.target.value))}
-                />
-                <span className="w-12 tabular-nums">{guide}%</span>
-              </label>
-              <div className="flex items-center gap-2">
-                Atraso da letra
-                <button className={button} onClick={() => changeDelay(delayMs - DELAY_STEP_MS)} aria-label="Diminuir atraso">
-                  −
-                </button>
-                <span className="w-20 text-center tabular-nums">
-                  {delayMs > 0 ? "+" : ""}
-                  {delayMs} ms
-                </span>
-                <button className={button} onClick={() => changeDelay(delayMs + DELAY_STEP_MS)} aria-label="Aumentar atraso">
-                  +
-                </button>
-              </div>
-              <Toggle label="Imagem de fundo" on={look.background} onChange={(background) => onLook({ background })} />
-              <Toggle label="Borda na letra" on={look.outline} onChange={(outline) => onLook({ outline })} />
-            </div>
-          </div>
-        </footer>
+        <FloatingBar
+          song={song}
+          loaded={loaded}
+          playing={playing}
+          position={clock.position}
+          duration={duration}
+          onToggle={() => void togglePlay()}
+          onSkip={onSkip}
+          onSeek={(seconds) => engine.seek(seconds)}
+          semitones={semitones}
+          onKey={changeKey}
+          guide={guide}
+          onGuide={changeGuide}
+          delayMs={delayMs}
+          onDelay={changeDelay}
+          look={look}
+          onLook={onLook}
+          region={region}
+        />
       </div>
     </div>
   );

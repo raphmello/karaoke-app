@@ -9,6 +9,16 @@ body,
   height: 100%;
 }
 
+/* On a touch screen, a field with text under 16 px makes the phone's browser (Safari, above all) zoom into the page
+   when tapped, cutting the screen. The fields keep 16 px there; outside any layer, so this beats the utilities. */
+@media (pointer: coarse) {
+  input:not([type="range"]):not([type="checkbox"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 body {
   background: #0b0b12;
   color: #f4f4f5;
@@ -39,4 +49,68 @@ body {
   .progress-stripes {
     animation: none;
   }
+}
+
+/* The TV's side menu and the phone's screens (tv/menu/; docs/ARCHITECTURE.md, "Menu lateral"): their own dark
+   tokens, from the approved mockup */
+:root {
+  --menu-rail: #1d1d22;
+  --menu-panel: #1a1a1f;
+  --menu-field: #222228;
+  --menu-btn: #2a2a31;
+  --menu-btn-hover: #33333b;
+  --menu-thumb: #2c2c33;
+  --menu-line: #26262c;
+  --menu-input: #15151a;
+  --menu-input-line: #2e2e36;
+  --menu-text: #f2f2f2;
+  --menu-text-2: #c9c9d0;
+  --menu-text-3: #8a8a93;
+  --menu-text-off: #6d6d76;
+  --menu-accent: #ffc107;
+  --menu-on-accent: #1a1a1a;
+  --menu-accent-soft: rgb(255 193 7 / 0.16);
+  --menu-ok: #4ade80;
+  --menu-err: #f87171;
+}
+
+/* Placeholders while the YouTube results come */
+@keyframes menu-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+.menu-skeleton {
+  background: var(--menu-line);
+  animation: menu-pulse 1.1s ease-in-out infinite;
+}
+
+/* The floating bar's guide voice (tv/controls/FloatingBar.tsx): the part already travelled in yellow */
+.menu-range {
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  margin: 0;
+  outline: none;
+  cursor: pointer;
+  background: linear-gradient(to right, var(--menu-accent) var(--v, 0%), var(--menu-thumb) var(--v, 0%));
+}
+.menu-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--menu-accent);
+  border: 0;
+}
+.menu-range::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--menu-accent);
+  border: 0;
+}
+.menu-range:focus-visible {
+  outline: 2px solid var(--menu-accent);
+  outline-offset: 6px;
 }

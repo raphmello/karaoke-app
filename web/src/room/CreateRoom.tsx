@@ -10,21 +10,23 @@ import { navigate } from "../lib/navigate";
 import { AudioEngine } from "../player/engine";
 import { becomeTv } from "../tv/OpenTv";
 
-const button = "rounded-lg bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-700 disabled:opacity-40";
+const button = "rounded-[9px] bg-(--menu-btn) px-[14px] py-2 text-[13px] font-medium text-(--menu-text) hover:bg-(--menu-btn-hover) disabled:opacity-40";
 
 export function CreateRoomButton({
   asHost,
   opensTv = false,
   onCreated,
+  className = "rounded-[10px] bg-(--menu-accent) px-[14px] py-[9px] text-[13px] font-medium text-(--menu-on-accent) hover:brightness-105 disabled:opacity-60",
 }: {
   asHost: boolean;
+  className?: string;
   opensTv?: boolean; // the new room's TV opens in this page
   onCreated?: (room: Room) => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950" onClick={() => setOpen(true)}>
+      <button className={className} onClick={() => setOpen(true)}>
         Criar sala
       </button>
       {open && (
@@ -86,7 +88,7 @@ function CreateRoomDialog({
     onCreated?.(room);
   };
 
-  const field = "rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-base text-zinc-100 outline-none focus:border-amber-400";
+  const field = "rounded-[9px] border border-(--menu-input-line) bg-(--menu-input) px-3 py-2 text-[13px] text-(--menu-text) outline-none placeholder:text-(--menu-text-off) focus:border-(--menu-accent)";
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4"
@@ -97,12 +99,12 @@ function CreateRoomDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby="create-room-title"
-        className="flex w-full max-w-md flex-col gap-4 rounded-2xl bg-zinc-900 p-6 text-left ring-1 ring-zinc-700"
+        className="flex w-full max-w-md flex-col gap-3.5 rounded-2xl bg-(--menu-field) p-6 text-left text-[13px] text-(--menu-text) shadow-[0_8px_30px_rgba(0,0,0,.5)]"
       >
-        <h2 id="create-room-title" className="text-xl font-bold">
+        <h2 id="create-room-title" className="text-[17px] font-medium">
           Criar sala
         </h2>
-        <label className="flex flex-col gap-1 text-sm text-zinc-400">
+        <label className="flex flex-col gap-1 text-[12px] text-(--menu-text-2)">
           Nome da sala
           <input
             autoFocus
@@ -113,7 +115,7 @@ function CreateRoomDialog({
             onChange={(event) => setName(event.target.value)}
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm text-zinc-400">
+        <label className="flex flex-col gap-1 text-[12px] text-(--menu-text-2)">
           Senha (opcional)
           <input
             type="password"
@@ -124,12 +126,12 @@ function CreateRoomDialog({
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="new-password"
           />
-          <span className="text-xs text-zinc-500">
+          <span className="text-[11px] text-(--menu-text-3)">
             Com senha, só entra e só abre a TV quem souber. Sem ela, a sala é pública.
           </span>
         </label>
         {!asHost && (
-          <label className="flex flex-col gap-1 text-sm text-zinc-400">
+          <label className="flex flex-col gap-1 text-[12px] text-(--menu-text-2)">
             Seu apelido
             <input
               maxLength={40}
@@ -140,16 +142,13 @@ function CreateRoomDialog({
             />
           </label>
         )}
-        <p className="text-sm text-zinc-500">A sala some sozinha 24 h depois de criada.</p>
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        <p className="text-[12px] text-(--menu-text-3)">A sala some sozinha 24 h depois de criada.</p>
+        {error && <p className="text-[12px] text-(--menu-err)">{error}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" className={button} onClick={onClose}>
             Cancelar
           </button>
-          <button
-            className="rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950 disabled:opacity-50"
-            disabled={busy || !name.trim() || (!asHost && !nickname.trim())}
-          >
+          <button className="rounded-[10px] bg-(--menu-accent) px-[14px] py-[9px] text-[13px] font-medium text-(--menu-on-accent) hover:brightness-105 disabled:opacity-60" disabled={busy || !name.trim() || (!asHost && !nickname.trim())}>
             Criar sala
           </button>
         </div>

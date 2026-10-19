@@ -25,9 +25,9 @@ export function DeleteRoomButton({ code, onDeleted }: { code: string; onDeleted?
         label="Excluir sala"
         confirmLabel="Excluir mesmo"
         onConfirm={() => void remove()}
-        className="rounded-lg px-3 py-2 text-sm font-semibold text-red-300 ring-1 ring-red-800 hover:bg-red-950"
+        className="rounded-[9px] bg-(--menu-btn) px-3 py-1.5 text-[12px] font-medium text-(--menu-err) hover:bg-(--menu-btn-hover)"
       />
-      {error && <span className="text-sm text-red-400">{error}</span>}
+      {error && <span className="text-[12px] text-(--menu-err)">{error}</span>}
     </span>
   );
 }

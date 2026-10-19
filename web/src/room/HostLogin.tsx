@@ -3,6 +3,7 @@
 // nothing from it.
 import { type FormEvent, type ReactNode, useState } from "react";
 import { api } from "../api";
+import { EntryCard, entryInput, entryLink, entryPrimary } from "../phone/EntryCard";
 
 export function HostLogin({
   title,
@@ -40,33 +41,26 @@ export function HostLogin({
   };
 
   return (
-    <main className="flex h-full items-center justify-center px-4">
-      <form onSubmit={submit} className="flex w-full max-w-sm flex-col gap-4 rounded-2xl bg-zinc-900 p-8">
-        <h1 className="text-2xl font-bold">{title}</h1>
-        <p className="text-zinc-400">{prompt}</p>
-        <input
-          type="password"
-          inputMode="numeric"
-          autoFocus
-          className="rounded-lg border border-zinc-700 bg-zinc-950 px-4 py-3 text-xl outline-none focus:border-amber-400"
-          value={pin}
-          onChange={(event) => setPin(event.target.value)}
-          aria-label={prompt}
-        />
-        {error && <p className="text-red-400">{error}</p>}
-        <button
-          className="rounded-lg bg-amber-400 px-4 py-3 text-lg font-bold text-zinc-950 disabled:opacity-50"
-          disabled={busy || !pin}
-        >
-          {submitLabel}
+    <EntryCard title={title} prompt={prompt} onSubmit={submit}>
+      <input
+        type="password"
+        inputMode="numeric"
+        autoFocus
+        className={`${entryInput} tracking-[0.3em]`}
+        value={pin}
+        onChange={(event) => setPin(event.target.value)}
+        aria-label={prompt}
+      />
+      {error && <p className="text-[13px] text-(--menu-err)">{error}</p>}
+      <button className={entryPrimary} disabled={busy || !pin}>
+        {submitLabel}
+      </button>
+      {onBack && (
+        <button type="button" className={entryLink} onClick={onBack}>
+          Voltar
         </button>
-        {onBack && (
-          <button type="button" className="text-sm text-zinc-400 underline" onClick={onBack}>
-            Voltar
-          </button>
-        )}
-        {footer}
-      </form>
-    </main>
+      )}
+      {footer}
+    </EntryCard>
   );
 }

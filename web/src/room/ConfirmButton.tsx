@@ -31,7 +31,7 @@ export function ConfirmButton({
     <span className="inline-flex flex-wrap gap-2">
       <button
         type="button"
-        className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-500"
+        className="rounded-[9px] bg-(--menu-err) px-3 py-1.5 text-[13px] font-medium text-[#1a1a1a] hover:brightness-105"
         onClick={() => {
           setAsking(false);
           onConfirm();
@@ -41,7 +41,7 @@ export function ConfirmButton({
       </button>
       <button
         type="button"
-        className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-semibold hover:bg-zinc-700"
+        className="rounded-[9px] bg-(--menu-btn) px-3 py-1.5 text-[13px] font-medium text-(--menu-text) hover:bg-(--menu-btn-hover)"
         onClick={() => setAsking(false)}
       >
         Cancelar
