@@ -303,6 +303,7 @@ export function PlayerScreen({
                 <div className="flex flex-wrap gap-2">
                   <Toggle label="Imagem de fundo" on={look.background} onChange={(background) => onLook({ background })} />
                   <Toggle label="Borda na letra" on={look.outline} onChange={(outline) => onLook({ outline })} />
+                  <Toggle label="Nota no fim" on={look.score} onChange={(score) => onLook({ score })} />
                 </div>
               </div>
             )}

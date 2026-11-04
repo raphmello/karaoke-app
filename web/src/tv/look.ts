@@ -1,10 +1,11 @@
 // How the TV looks during a song: the video's thumbnail behind the lyrics, and an outline around the lyrics so they
-// read over any image. Both are on when a new room opens; changes are kept per room, in the TV's browser.
+// read over any image; and, from 0.19.0, the score at the end of a song (tv/ScoreScreen.tsx). All are on when a new
+// room opens; changes are kept per room, in the TV's browser.
 import { useState } from "react";
 
-export type Look = { background: boolean; outline: boolean };
+export type Look = { background: boolean; outline: boolean; score: boolean };
 
-const DEFAULT: Look = { background: true, outline: true };
+const DEFAULT: Look = { background: true, outline: true, score: true };
 const key = (roomCode: string) => `karaoke.tv.look.${roomCode}`;
 
 function load(roomCode: string): Look {

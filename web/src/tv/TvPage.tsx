@@ -7,6 +7,7 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 import { ApiError, api, onSessionLost, retryWhileRestarting, type QueueEntry, type RoomInfo } from "../api";
 import { keyLabel } from "../lib/keys";
 import { liveProgress, type Next, nextEntry, songTitle, statusText } from "../lib/queue";
+import { deservesScore, pickScore } from "../lib/score";
 import { AudioEngine } from "../player/engine";
 import { ProgressBar } from "../room/ProgressBar";
 import { type Command, useRoom } from "../room/useRoom";
@@ -18,6 +19,7 @@ import { useLook } from "./look";
 import { engineTaken, handedEngine } from "./OpenTv";
 import { type PlayerReport, PlayerScreen } from "./PlayerScreen";
 import { TvMenuLayout } from "./TvMenu";
+import { ScoreScreen } from "./ScoreScreen";
 
 const COUNTDOWN_S = 5; // between songs (docs/ARCHITECTURE.md, "Entre músicas")
 
@@ -304,6 +306,27 @@ function TvQueue({
     send.current({ type: "player.state", entry_id: null, position: 0, paused: true, semitones: 0 });
   }, []);
 
+  // The score at the end of a song (from 0.19.0): sung to the end, or skipped after half of it; the next song's
+  // countdown waits until it closes. A song removed from the queue gets none.
+  const [scoring, setScoring] = useState<{ entry: QueueEntry; score: number } | null>(null);
+  const heard = useRef(0); // how far the song playing now went, from the player's reports
+  const scoreOn = useRef(look.score);
+  scoreOn.current = look.score;
+  const finish = useCallback(
+    (entry: QueueEntry | null, sung: boolean) => {
+      if (entry && sung && scoreOn.current) setScoring({ entry, score: pickScore() });
+      heard.current = 0;
+      end();
+    },
+    [end],
+  );
+  const currentRef = useRef(current);
+  currentRef.current = current;
+  const skipped = useCallback(() => {
+    const entry = currentRef.current;
+    finish(entry, !!entry && deservesScore(heard.current, entry.song.duration_s ?? 0));
+  }, [finish]);
+
   // Songs that could not be prepared: a notice each, named from the queue while it has them
   const [failures, setFailures] = useState<Failure[]>([]);
   const queued = useRef<QueueEntry[] | null>(null);
@@ -317,7 +340,7 @@ function TvQueue({
       setFailures((all) => [...all.filter((f) => f.videoId !== videoId), failure]);
     },
     onCommand: (command) => {
-      if (command.action === "skip") end();
+      if (command.action === "skip") skipped();
       else if (command.action === "key" && command.semitones !== undefined) setSemitones(command.semitones);
       else if (!current && (command.action === "pause" || command.action === "play")) setHeld(command.action === "pause");
       else commands.current?.(command);
@@ -339,7 +362,7 @@ function TvQueue({
 
   // Between songs: the next ready entry starts on its own after the countdown, unless the host paused it. A skip
   // (the server skips the entry about to start) or a new first entry starts the countdown over.
-  const upcoming = !current && !closed && next?.kind === "play" ? next.entry : null;
+  const upcoming = !current && !scoring && !closed && next?.kind === "play" ? next.entry : null;
   const upcomingRef = useRef(upcoming);
   upcomingRef.current = upcoming;
   useEffect(() => setLeft(COUNTDOWN_S), [upcoming?.id]);
@@ -367,6 +390,7 @@ function TvQueue({
 
   const report = useCallback(
     ({ position, paused }: PlayerReport) => {
+      heard.current = position;
       if (current) live.send({ type: "player.state", entry_id: current.id, position, paused, semitones });
     },
     [current, semitones, live.send],
@@ -386,8 +410,8 @@ function TvQueue({
             setSemitones(value);
             void api.change(room.code, current.id, { semitones: value }).catch(() => undefined);
           }}
-          onSkip={() => void api.player(room.code, "skip").catch(end)}
-          onEnded={end}
+          onSkip={() => void api.player(room.code, "skip").catch(skipped)}
+          onEnded={() => finish(current, true)}
           onReport={report}
           commands={commands}
           corner={
@@ -401,6 +425,21 @@ function TvQueue({
           onLook={changeLook}
           upNext={closed || following.kind === "empty" ? undefined : <UpNext next={following} compact={compact} />}
           banner={closed ? <ClosedBanner room={room} /> : undefined}
+        />
+        {notices}
+      </>
+    );
+  }
+  if (scoring) {
+    return (
+      <>
+        <ScoreScreen
+          key={scoring.entry.id}
+          score={scoring.score}
+          title={songTitle(scoring.entry.song)}
+          singer={scoring.entry.singer_name ?? scoring.entry.added_by}
+          thumbnail={scoring.entry.song.thumbnail_url}
+          onDone={() => setScoring(null)}
         />
         {notices}
       </>

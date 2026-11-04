@@ -372,6 +372,7 @@ function Tray({
       </Chip>
       <Switch label="Imagem de fundo" on={look.background} onChange={(background) => onLook({ background })} />
       <Switch label="Borda na letra" on={look.outline} onChange={(outline) => onLook({ outline })} />
+      <Switch label="Nota no fim" on={look.score} onChange={(score) => onLook({ score })} />
     </div>
   );
 }

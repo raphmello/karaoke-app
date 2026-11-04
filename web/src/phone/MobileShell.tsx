@@ -4,6 +4,7 @@
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "../tv/menu/icons";
 import { WithToast } from "../tv/menu/ui";
+import { Touch } from "../tv/menu/SongList";
 
 /** The whole screen: the panel, the short notice over its bottom, and the bar of icons, if any. */
 export function MobileFrame({ children, nav }: { children: ReactNode; nav?: ReactNode }) {
@@ -11,13 +12,15 @@ export function MobileFrame({ children, nav }: { children: ReactNode; nav?: Reac
     <div className="flex h-dvh justify-center bg-(--menu-panel) text-[13px] leading-[1.4] text-(--menu-text)">
       <WithToast>
         {(toast) => (
-          <div className="flex h-full w-full max-w-xl flex-col">
-            <div className="relative flex min-h-0 flex-1 flex-col">
-              {children}
-              {toast}
+          <Touch.Provider value>
+            <div className="flex h-full w-full max-w-xl flex-col">
+              <div className="relative flex min-h-0 flex-1 flex-col">
+                {children}
+                {toast}
+              </div>
+              {nav}
             </div>
-            {nav}
-          </div>
+          </Touch.Provider>
         )}
       </WithToast>
     </div>
