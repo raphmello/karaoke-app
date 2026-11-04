@@ -9,7 +9,7 @@ from sqlalchemy import func, select
 
 from karaoke.api.app import create_app
 from karaoke.core.db import make_engine, make_sessionmaker, transaction
-from karaoke.core.models import READY, Job, QueueEntry, Room, Song
+from karaoke.core.models import READY, Job, QueueEntry, Room, Song, utcnow
 
 VIDEO = "dQw4w9WgXcQ"
 
@@ -212,7 +212,7 @@ def test_a_song_shows_its_status_and_media(app, client, db):
         assert media["vocals"] == f"/media/{VIDEO}/play/vocals.opus?v={version}"
 
 
-def test_the_library_lists_only_ready_songs(app, client, db):
+def test_the_library_lists_ready_songs_and_those_being_reprocessed(app, client, db):
     code = open_room(host(client))
     phone = guest(app, code)
     make_ready(db)
@@ -220,8 +220,12 @@ def test_the_library_lists_only_ready_songs(app, client, db):
     with transaction(db) as session:
         session.add(Song(video_id="bbbbbbbbbbb", title="Removida", status="removed"))
         session.add(Song(video_id="ccccccccccc", title="Processando", status="processing"))
+        session.add(Song(video_id="ddddddddddd", title="Reprocessando", artist="Zeca", status="processing",
+                         ready_at=utcnow()))
 
-    assert [s["title"] for s in phone.get("/api/library").json()] == ["Never Gonna Give You Up", "Garota de Ipanema"]
+    # a song being prepared for the first time is not there yet; one being prepared again stays, with its status
+    assert [(s["title"], s["status"]) for s in phone.get("/api/library").json()] == [
+        ("Never Gonna Give You Up", "ready"), ("Garota de Ipanema", "ready"), ("Reprocessando", "processing")]
     assert [s["title"] for s in phone.get("/api/library", params={"q": "jobim ipanema"}).json()] == [
         "Garota de Ipanema"]
 

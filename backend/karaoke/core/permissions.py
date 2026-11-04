@@ -67,6 +67,7 @@ class Action(StrEnum):
     REMOVE_ENTRY = "remove_entry"  # if it is playing, it is skipped
     CHANGE_KEY = "change_key"
     ANSWER_TRANSCRIPTION = "answer_transcription"
+    ANSWER_PHONETIC = "answer_phonetic"  # use the automatic phonetic lyrics or not
     REORDER = "reorder"
     PLAYER = "player"  # play, pause, skip
     PLAYER_SETTINGS = "player_settings"  # guide voice and the TV's delay
@@ -75,12 +76,12 @@ class Action(StrEnum):
 
 
 GUEST = {Action.ADD, Action.CREATE_ROOM}
-OWNER = {Action.REMOVE_ENTRY, Action.CHANGE_KEY, Action.ANSWER_TRANSCRIPTION}  # of the entry
+OWNER = {Action.REMOVE_ENTRY, Action.CHANGE_KEY, Action.ANSWER_TRANSCRIPTION, Action.ANSWER_PHONETIC}  # of the entry
 TV = {Action.PLAYER, Action.ADD, Action.CREATE_ROOM}  # the key of the entry that is playing; and, as an owner, the songs it added
 # The room's owner is the "host" of that room; the library and the panel stay the host's
 ROOM_OWNER = {
     Action.REMOVE_ROOM, Action.ADD, Action.REMOVE_ENTRY, Action.CHANGE_KEY, Action.ANSWER_TRANSCRIPTION,
-    Action.REORDER, Action.PLAYER, Action.PLAYER_SETTINGS, Action.CREATE_ROOM,
+    Action.ANSWER_PHONETIC, Action.REORDER, Action.PLAYER, Action.PLAYER_SETTINGS, Action.CREATE_ROOM,
 }
 
 

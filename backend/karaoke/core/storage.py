@@ -95,6 +95,16 @@ class SongFolder:
     def aligned(self) -> Path:
         return self.root / "lyrics" / "aligned.json"
 
+    @property
+    def phonetic(self) -> Path:
+        """The phonetic lyrics, line for line with aligned.json (pipeline/phonetic.py)."""
+        return self.root / "lyrics" / "phonetic.json"
+
+    @property
+    def romanized(self) -> Path:
+        """The fans' romanization from LRCLIB, as it came, when the phonetic lyrics use it."""
+        return self.root / "lyrics" / "romanized.json"
+
     def source_audio(self) -> Path | None:
         found = sorted(p for p in self.root.glob("source.*") if ".tmp" not in p.name)
         return found[0] if found else None

@@ -38,9 +38,10 @@ def test_the_stages_match_the_pipeline():
 
 
 def test_redoing_a_stage_redoes_what_reads_it():
-    assert with_dependents({"alignment"}) == ["alignment"]
-    assert with_dependents({"separation"}) == ["separation", "alignment", "key", "encode"]
-    assert with_dependents({"lyrics"}) == ["lyrics", "language", "alignment"]
+    assert with_dependents({"alignment"}) == ["alignment", "phonetic"]
+    assert with_dependents({"separation"}) == ["separation", "alignment", "phonetic", "key", "encode"]
+    assert with_dependents({"lyrics"}) == ["lyrics", "language", "alignment", "phonetic"]
+    assert with_dependents({"phonetic"}) == ["phonetic"]
     assert with_dependents(set()) == []
 
 
@@ -62,7 +63,7 @@ def test_only_the_host(phone, code, db, settings, method, path, body):
 
 # --- lyrics and reprocessing ---------------------------------------------------------------------------------------
 
-def test_new_lyrics_redo_only_the_language_and_the_alignment(host, code, db, settings):
+def test_new_lyrics_redo_only_the_language_the_alignment_and_the_phonetic(host, code, db, settings):
     make_song(db, settings)
     lrc = "[00:12.00] primeira linha\n[00:15.50] segunda linha\n"
     assert host.put(f"/api/songs/{VIDEO}/lyrics", json={"text": lrc}).status_code == 204
@@ -70,7 +71,7 @@ def test_new_lyrics_redo_only_the_language_and_the_alignment(host, code, db, set
     source = json.loads(SongFolder(settings.media_dir, VIDEO).lyrics_source.read_text(encoding="utf-8"))
     assert source["source"] == "manual" and source["synced"]
     assert source["lines"] == [{"t": 12.0, "text": "primeira linha"}, {"t": 15.5, "text": "segunda linha"}]
-    assert [job.options for job in jobs(db)] == [{"redo": ["language", "alignment"]}]
+    assert [job.options for job in jobs(db)] == [{"redo": ["language", "alignment", "phonetic"]}]
     assert (song(db).status, song(db).lyrics_source) == ("pending", "manual")
     assert host.put(f"/api/songs/{VIDEO}/lyrics", json={"text": lrc}).status_code == 409  # a job is pending
 
@@ -94,8 +95,8 @@ def test_pasted_lyrics_answer_the_transcription_question(phone, host, code, db, 
 def test_reprocess_runs_the_chosen_stages_and_their_dependents(host, code, db, settings):
     make_song(db, settings)
     response = host.post(f"/api/songs/{VIDEO}/reprocess", json={"stages": ["separation"]})
-    assert response.json() == {"stages": ["separation", "alignment", "key", "encode"]}
-    assert jobs(db)[0].options == {"redo": ["separation", "alignment", "key", "encode"]}
+    assert response.json() == {"stages": ["separation", "alignment", "phonetic", "key", "encode"]}
+    assert jobs(db)[0].options == {"redo": ["separation", "alignment", "phonetic", "key", "encode"]}
     assert host.post(f"/api/songs/{VIDEO}/reprocess", json={"stages": ["nope"]}).status_code == 409
 
 

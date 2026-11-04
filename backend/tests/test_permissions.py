@@ -21,6 +21,7 @@ MATRIX = [
     (Action.REMOVE_ENTRY, True, True, False, False, True),
     (Action.CHANGE_KEY, True, True, False, False, True),
     (Action.ANSWER_TRANSCRIPTION, True, True, False, False, True),
+    (Action.ANSWER_PHONETIC, True, True, False, False, True),
     (Action.REORDER, True, False, False, False, True),
     (Action.PLAYER, True, False, False, True, True),
     (Action.PLAYER_SETTINGS, True, False, False, False, True),
