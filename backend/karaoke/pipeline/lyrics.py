@@ -13,6 +13,7 @@ import time
 import requests
 
 from karaoke.core.storage import write_json
+from karaoke.pipeline import language
 
 log = logging.getLogger("karaoke.pipeline")
 
@@ -22,6 +23,11 @@ HEADERS = {"User-Agent": "karaoke-app/0.1 (https://github.com/raphmello/karaoke-
 RETRY_WAITS_S = (2.0, 5.0, 10.0, 20.0, 30.0)
 SITE_DOWN = "O site das letras (LRCLIB) está fora do ar agora; tente de novo em alguns minutos."
 MAX_DURATION_DIFF = 10.0  # seconds; further away it is probably another version of the song
+# Lyrics with this much more of their words in another language than another candidate in the same main language
+# mix in versions nobody sings in the video (Detalhes with its Spanish, Italian and English verses)
+MIXED_MORE = 0.3
+MIXED_CHECK = 0.25  # the share in another language that makes the lyrics LRCLIB gives worth comparing
+PASSAGE_WORDS = 12  # lines are read in passages this long: lingua guesses a short line's language poorly
 TIMESTAMP = re.compile(r"\[(\d+):(\d+(?:\.\d+)?)\]")
 NOISE = re.compile(
     r"\s*[\(\[][^)\]]*?(official|oficial|video|vídeo|clipe|clip|audio|áudio|lyric|letra|remaster|hd|4k|"
@@ -33,7 +39,41 @@ NOISE_WORDS = re.compile(
     r"\b(official|oficial|video|vídeo|clipe|clip|audio|áudio|lyrics?|letra|remaster(ed)?|visualizer|ao vivo|live)\b",
     re.IGNORECASE,
 )
-SEPARATOR = re.compile(r"\s+[-–—|]\s+")  # noqa: RUF001 - YouTube titles use en and em dashes as separators
+# What karaoke videos add to a title: 【No Guide Melody】, "Karaoke♬", "Lyric Romanized", "Off Vocal"
+KARAOKE_NOISE = re.compile(
+    r"【[^】]*】|[♪♫♬]|\b(karaok[eê]|lyrics?\s+romanized|romanized(\s+lyrics?)?|romaji|no guide melody|off vocal)\b",
+    re.IGNORECASE,
+)
+# "Artist - Track", and "Artist- Track" too (the dash against the artist); never a hyphen inside a name (Jay-Z)
+SEPARATOR = re.compile(r"\s*[-–—|]\s+")  # noqa: RUF001 - YouTube titles use en and em dashes as separators
+NAME_NOISE = re.compile(
+    r"\[[^\]]*\]|\([^)]*\)|【[^】]*】|「|」|『|』"
+    r"|\b(tradução|traduçao|traducao|legendado|legendada|lyrics?|letra|official|oficial|video|vídeo|mv|m/v|hd|4k)\b",
+    re.IGNORECASE,
+)
+NAME_PARTS = re.compile(r"\s*[/／~〜～|]\s*|\s+-\s+")  # / ~ 〜, a bar, a dash
+# What a bracket in a name says when it is not another name of the song: (Club Mix), (English Translation)
+NOT_A_NAME = re.compile(
+    r"\b(mix|remix|version|ver|edit|live|ao vivo|remaster(ed)?|feat|ft|lyrics?|letra|translation|tradução|traducao"
+    r"|legendad[oa]|official|oficial|video|vídeo|audio|áudio|hd|4k|mv|karaok[eê]|instrumental|acoustic|acústico"
+    r"|cover)\b",
+    re.IGNORECASE,
+)
+BRACKETED = re.compile(r"[(\[（]([^)\]）]+)[)\]）]")
+
+
+def clean_name(name: str) -> str:
+    """A song's name without what videos add to it: [Tradução em PT-BR], (Official Video), 「」, Lyrics."""
+    return re.sub(r"\s+", " ", NAME_NOISE.sub(" ", name or "")).strip(" .-|/")
+
+
+def names_of(track: str) -> list[str]:
+    """The name, each part of a double name ("真夜中のドア / Stay with me"), and the other name a bracket gives
+    ("Sukiyaki (Ue o Muite Arukou)")."""
+    name = clean_name(track)
+    inside = [clean_name(m[1]) for m in BRACKETED.finditer(track or "") if not NOT_A_NAME.search(m[1])]
+    return list(dict.fromkeys([name, *(part for part in NAME_PARTS.split(name) if part),
+                               *(other for other in inside if other)]))
 
 
 class LyricsSiteDown(Exception):
@@ -61,12 +101,15 @@ def guess_artist_track(meta: dict) -> tuple[str, str]:
     """Artist and track from the YouTube metadata, falling back to "Artist - Track (Official Video)" titles."""
     if meta.get("track") and meta.get("artist"):
         return meta["artist"].split(",")[0].strip(), meta["track"].strip()
-    title = NOISE.sub("", meta.get("title") or "").strip()
-    parts = SEPARATOR.split(title)
-    # "Artist - Track - Video Oficial": the parts after the track that only say what kind of video it is go
-    while len(parts) > 2 and NOISE_WORDS.search(parts[-1]):
-        parts.pop()
+    title = re.sub(r"\s+", " ", KARAOKE_NOISE.sub(" ", NOISE.sub("", meta.get("title") or ""))).strip()
+    parts = [part for part in SEPARATOR.split(title) if part.strip()]
     channel = channel_name(meta)
+    # "Artist - Track - Video Oficial": the parts after the track that only say what kind of video it is go, and
+    # so does the channel's name at the end ("... | EdKara")
+    while len(parts) > 2 and (NOISE_WORDS.search(parts[-1]) or same_name(parts[-1], channel)):
+        parts.pop()
+    if not parts:
+        return channel, ""
     if len(parts) > 1:
         first, rest = parts[0].strip(), " - ".join(parts[1:]).strip()
         # "Track - Artist" titles exist too ("In The End [Official HD Music Video] - Linkin Park"): the part that
@@ -173,15 +216,56 @@ def syncedlyrics_search(artist: str, track: str) -> dict | None:
             "duration": None, "synced": bool(synced), "lines": lines}
 
 
+def passages(lyrics: dict) -> list[str]:
+    """The lyrics' lines joined in order into passages of at least PASSAGE_WORDS words."""
+    out: list[str] = []
+    current: list[str] = []
+    for line in lyrics["lines"]:
+        if line["text"].strip():
+            current.append(line["text"])
+            if sum(len(text.split()) for text in current) >= PASSAGE_WORDS:
+                out.append(" ".join(current))
+                current = []
+    return [*out, " ".join(current)] if current else out
+
+
+def languages(lyrics: dict) -> tuple[str | None, float]:
+    """The lyrics' main language and the share of their words in passages in another one."""
+    if "_languages" not in lyrics:
+        parts = passages(lyrics)
+        words = sum(len(part.split()) for part in parts)
+        main = language.detect("\n".join(parts)) if parts else None
+        other = sum(len(part.split()) for part in parts if language.detect(part) != main)
+        lyrics["_languages"] = (main, other / words if words else 0.0)
+    return lyrics["_languages"]
+
+
+def mixed(lyrics: dict, others: list[dict]) -> bool:
+    """Synced lyrics with MIXED_MORE more of their words in another language than other synced lyrics in the same
+    main language: someone joined the versions in several languages, and the video sings one."""
+    if not lyrics["synced"]:
+        return False
+    main, other = languages(lyrics)
+    return any(c is not lyrics and c["synced"] and languages(c)[0] == main and other - languages(c)[1] >= MIXED_MORE
+               for c in others)
+
+
 def choose(candidates: list[dict], duration: float | None) -> dict | None:
-    """Synced first, then the closest duration; lyrics far from the video's duration are another version."""
+    """Synced first, then lyrics in the video's languages only, then the closest duration; lyrics far from the
+    video's duration are another version."""
     def diff(c: dict) -> float:
         return abs(c["duration"] - duration) if c.get("duration") and duration else 0.0
 
     usable = [c for c in candidates if diff(c) <= MAX_DURATION_DIFF]
     if not usable:
         return None
-    return min(usable, key=lambda c: (not c["synced"], diff(c)))
+    synced = [c for c in usable if c["synced"]]
+    return min(usable, key=lambda c: (not c["synced"], len(synced) > 1 and mixed(c, synced), diff(c)))
+
+
+def plain_of(lyrics: dict | None) -> dict | None:
+    """The lyrics without what choose() noted on them."""
+    return {k: v for k, v in lyrics.items() if k != "_languages"} if lyrics else lyrics
 
 
 def fits_video(lyrics: dict, duration: float | None) -> bool:
@@ -193,16 +277,37 @@ def fits_video(lyrics: dict, duration: float | None) -> bool:
 
 
 def find(meta: dict) -> dict | None:
+    return plain_of(_find(meta))
+
+
+def _find(meta: dict) -> dict | None:
     artist, track = guess_artist_track(meta)
     duration = meta.get("duration_s")
     found = lrclib_get(artist, track, duration)
-    if found and found["synced"]:
+    if found and found["synced"] and languages(found)[1] < MIXED_CHECK:
         return found
     candidates = [found] if found else []
     candidates += lrclib_search(f"{artist} {track}".strip())
     best = choose(candidates, duration)
     if best and best["synced"]:
         return best
+    # The name cleaned of what videos add ("HD", "(Club Mix)", "[Tradução em PT-BR]") and each part of a double
+    # name ("真夜中のドア / Stay with me")
+    for name in names_of(track):
+        query = f"{artist} {name}".strip()
+        if query != f"{artist} {track}".strip():
+            candidates += lrclib_search(query)
+    best = choose(candidates, duration)
+    if best and best["synced"]:
+        return best
+    # Titles with the track first and the artist after ("Mayonaka no Door - Miki Matsubara"), when the channel's
+    # name did not tell them apart
+    if artist and track:
+        found = lrclib_get(track, artist, duration)
+        candidates += [found] if found else []
+        best = choose(candidates, duration)
+        if best and best["synced"]:
+            return best
     try:
         extra = syncedlyrics_search(artist, track)
     except Exception as exc:  # a scraper fallback; its failure must not hide what LRCLIB already found
