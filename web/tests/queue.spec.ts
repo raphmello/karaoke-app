@@ -15,7 +15,7 @@ const entry = (status: string, songStatus: string, extra: Partial<Song> = {}): Q
   song: {
     video_id: `video${id}`, title: "T", artist: null, track: null, channel: null, duration_s: 100,
     thumbnail_url: null, status: songStatus, stage: null, original_key: null, language: null, lyrics_source: null,
-    alignment_confidence: null, error: null, media: null, ...extra,
+    alignment_confidence: null, phonetic_source: null, error: null, media: null, ...extra,
   },
 });
 
@@ -79,4 +79,12 @@ test("a song too long for the TV is skipped, and says why", () => {
   const ready = entry("queued", "ready");
   expect(nextEntry([long, ready])).toEqual({ kind: "play", entry: ready });
   expect(statusText(long, {})).toBe("Longa demais para a TV (mais de 10 min): será pulada");
+});
+
+test("a song waiting for the automatic phonetic answer is skipped until someone answers", () => {
+  const waiting = entry("queued", "ready", { phonetic_source: "pendente" });
+  const ready = entry("queued", "ready");
+  expect(nextEntry([waiting, ready])).toEqual({ kind: "play", entry: ready });
+  expect(nextEntry([waiting]).kind).toBe("empty");
+  expect(nextEntry([{ ...waiting, song: { ...waiting.song, phonetic_source: "auto" } }]).kind).toBe("play");
 });

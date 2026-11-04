@@ -1,5 +1,5 @@
-// The score at the end of a song, on the TV only (docs/ARCHITECTURE.md, phase 6, "Nota no fim da música", from
-// 0.19.0): a gauge whose needle climbs trembling while drums roll, passes the score, hesitates, slips back and
+// The score at the end of a song, on the TV only: a gauge whose needle climbs trembling while drums roll, passes
+// the score, hesitates, slips back and
 // locks; then a phrase for the score, confetti from 90 and a fanfare from 95. The score is random (lib/score.ts);
 // the sound is made here with Web Audio, so there is no recording to license. "Pular", or Esc, closes it.
 import { useEffect, useRef, useState } from "react";

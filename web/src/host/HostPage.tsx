@@ -1,15 +1,20 @@
 // /host: the host runs every open room (docs/ARCHITECTURE.md, "Salas" and "Telas do celular"), with the TV menu's
 // look and a bar of icons at the bottom. Salas: the open rooms and "Criar sala"; in the one picked, its details
 // ("Abrir como TV", "Excluir sala"), the Fila and Adicionar as on the TV's menu, and the player in "Cantando agora".
-// Painel: Disco, Jobs and Acervo. /host?sala=<code> opens with that room picked (the list's "Gerenciar").
+// Painel: Disco, Jobs and Acervo. /host?sala=<code> opens with that room picked (the list's "Gerenciar"). A song that
+// could not be prepared, or that waits for an answer, has a notice that opens the queue (or Jobs) at it.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState } from "react";
-import { ApiError, api, onSessionLost, retryWhileRestarting, type RoomInfo } from "../api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiError, api, onSessionLost, type QueueEntry, retryWhileRestarting, type RoomInfo } from "../api";
+import { songTitle } from "../lib/queue";
 import { MobileFrame, BottomNav, NavItem, smallAction } from "../phone/MobileShell";
 import { CreateRoomButton } from "../room/CreateRoom";
 import { HostLogin } from "../room/HostLogin";
 import { useRoom } from "../room/useRoom";
+import { AnswerNotices } from "../tv/AnswerNotices";
+import { type Failure, FailedSongs } from "../tv/FailedSongs";
 import { PainelPanel, type PainelTab } from "../tv/menu/PainelPanel";
+import { ShowSong, type SongPlace } from "../tv/menu/showSong";
 import { SalaPanel, type SalaTab } from "../tv/menu/SalaPanel";
 import { PanelHeader } from "../tv/menu/ui";
 import { OpenTvButton } from "../tv/OpenTv";
@@ -46,8 +51,25 @@ export function HostPage() {
 type View = "salas" | "painel";
 
 function HostScreens() {
-  const [view, setView] = useState<View>("salas");
-  const [painel, setPainel] = useState<PainelTab>("disco");
+  const [view, setViewNow] = useState<View>("salas");
+  const [painel, setPainelNow] = useState<PainelTab>("disco");
+  const [focus, setFocus] = useState<string | null>(null); // a song a notice pointed at, marked until the host moves
+  const setView = (next: View) => {
+    setViewNow(next);
+    setFocus(null);
+  };
+  const setPainel = (next: PainelTab) => {
+    setPainelNow(next);
+    setFocus(null);
+  };
+  const showSong = (videoId: string, where: SongPlace) => {
+    if (where === "fila") setViewNow("salas");
+    else {
+      setViewNow("painel");
+      setPainelNow(where);
+    }
+    setFocus(videoId);
+  };
   const rooms = useQuery({ queryKey: ["rooms"], queryFn: api.rooms, ...retryWhileRestarting, refetchInterval: 15000 });
   const [picked, setPicked] = useState<string | null>(
     () => new URLSearchParams(location.search).get("sala")?.toUpperCase() ?? null,
@@ -69,10 +91,11 @@ function HostScreens() {
         </BottomNav>
       }
     >
+      <ShowSong.Provider value={showSong}>
       {view === "painel" ? (
-        <PainelPanel tab={painel} onTab={setPainel} />
+        <PainelPanel tab={painel} onTab={setPainel} focus={focus} />
       ) : room ? (
-        <Room key={room.code} room={room} rooms={list} onPick={pick} />
+        <Room key={room.code} room={room} rooms={list} onPick={pick} focus={focus} onShow={showSong} />
       ) : (
         <>
           <PanelHeader title="Salas" actions={<CreateRoomButton asHost onCreated={(created) => pick(created.code)} />} />
@@ -90,6 +113,7 @@ function HostScreens() {
           </div>
         </>
       )}
+      </ShowSong.Provider>
     </MobileFrame>
   );
 }
@@ -114,10 +138,36 @@ function RoomChips({ rooms, picked, onPick }: { rooms: RoomInfo[]; picked: strin
   );
 }
 
-function Room({ room, rooms, onPick }: { room: RoomInfo; rooms: RoomInfo[]; onPick: (code: string | null) => void }) {
-  const live = useRoom(room.code);
+function Room({
+  room,
+  rooms,
+  onPick,
+  focus,
+  onShow,
+}: {
+  room: RoomInfo;
+  rooms: RoomInfo[];
+  onPick: (code: string | null) => void;
+  focus: string | null;
+  onShow: (videoId: string, where: SongPlace) => void;
+}) {
+  // A song that could not be prepared: a notice, as on the TV, with "Ver na fila" (or "Ver em Jobs")
+  const [failures, setFailures] = useState<Failure[]>([]);
+  const queued = useRef<QueueEntry[] | null>(null);
+  const dismissFailure = useCallback((key: number) => setFailures((all) => all.filter((f) => f.key !== key)), []);
+  const live = useRoom(room.code, {
+    onSongFailed: (videoId) => {
+      const entry = queued.current?.find((e) => e.video_id === videoId);
+      const failure = { key: Date.now(), videoId, title: entry ? songTitle(entry.song) : null, inQueue: !!entry };
+      setFailures((all) => [...all.filter((f) => f.videoId !== videoId), failure]);
+    },
+  });
+  queued.current = live.entries;
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<SalaTab>("fila");
+  useEffect(() => {
+    if (focus) setTab("fila"); // a notice's "Ver na fila"
+  }, [focus]);
   // The socket closed because the room is gone (4404) or the session is (a 401 brings back the PIN): check again
   useEffect(() => {
     if (!live.closedWith) return;
@@ -143,7 +193,16 @@ function Room({ room, rooms, onPick }: { room: RoomInfo; rooms: RoomInfo[]; onPi
         aside={<CreateRoomButton asHost className={smallAction} onCreated={(created) => onPick(created.code)} />}
         actions={<OpenTvButton room={room} className={smallAction} />}
         onDeleted={() => onPick(null)}
+        focus={focus}
       />
+      <FailedSongs
+        failures={failures}
+        onDismiss={dismissFailure}
+        onShow={(failure) => onShow(failure.videoId, failure.inQueue ? "fila" : "jobs")}
+        admin
+      >
+        <AnswerNotices entries={live.entries} admin host onShow={(videoId, inQueue) => onShow(videoId, inQueue ? "fila" : "acervo")} />
+      </FailedSongs>
     </>
   );
 }

@@ -11,13 +11,15 @@ export const MAX_SONG_S = 600;
 
 export const tooLong = (song: { duration_s: number | null }) => (song.duration_s ?? 0) > MAX_SONG_S;
 
-/** In queue order: an entry already playing (the TV reloaded) comes first; entries waiting for the transcription
- *  answer, songs that failed and songs too long for the TV are skipped; a song still processing makes the TV wait. */
+/** In queue order: an entry already playing (the TV reloaded) comes first; entries waiting for an answer (the
+ *  transcription, or the automatic phonetic lyrics), songs that failed and songs too long for the TV are
+ *  skipped; a song still processing makes the TV wait. */
 export function nextEntry(entries: QueueEntry[]): Next {
   const playing = entries.find((entry) => entry.status === "playing" && entry.song.status === "ready" && !tooLong(entry.song));
   if (playing) return { kind: "play", entry: playing };
   for (const entry of entries) {
     if (entry.status !== "queued" || tooLong(entry.song)) continue;
+    if (entry.song.status === "ready" && entry.song.phonetic_source === "pendente") continue; // waits for the answer
     if (entry.song.status === "ready") return { kind: "play", entry };
     if (entry.song.status === "pending" || entry.song.status === "processing") return { kind: "wait", entry };
   }
@@ -32,6 +34,7 @@ export const STAGE_NAMES: Record<string, string> = {
   separation: "Separando a voz",
   language: "Detectando o idioma",
   alignment: "Sincronizando a letra",
+  phonetic: "Pronúncia",
   key: "Detectando o tom",
   encode: "Finalizando",
 };

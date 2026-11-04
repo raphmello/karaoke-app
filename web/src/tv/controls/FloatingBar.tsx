@@ -10,6 +10,7 @@ import type { Song } from "../../api";
 import { keyName, MAX_SEMITONES, MIN_SEMITONES, parseKey, signed } from "../../lib/keys";
 import type { Look } from "../look";
 import { Icon, type IconName } from "../menu/icons";
+import { type LyricsChoice, LyricsSwitch } from "../phonetic";
 import { formatTime } from "../time";
 
 export const HIDE_AFTER_MS = 3000; // without anyone touching the bar
@@ -50,6 +51,7 @@ export function FloatingBar({
   onDelay,
   look,
   onLook,
+  lyrics,
   region,
 }: {
   song: Song;
@@ -68,6 +70,7 @@ export function FloatingBar({
   onDelay: (ms: number) => void;
   look: Look;
   onLook: (change: Partial<Look>) => void;
+  lyrics?: { choice: LyricsChoice; onChange: (choice: LyricsChoice) => void }; // the song has phonetic lyrics
   region: { current: HTMLElement | null }; // where the mouse moving shows the bar: the video
 }) {
   const [tray, setTray] = useState(loadTray);
@@ -135,7 +138,15 @@ export function FloatingBar({
         onBlur={(event) => !event.currentTarget.contains(event.relatedTarget as Node) && setFocused(false)}
       >
         {tray && (
-          <Tray guide={guide} onGuide={onGuide} delayMs={delayMs} onDelay={onDelay} look={look} onLook={onLook} />
+          <Tray
+            guide={guide}
+            onGuide={onGuide}
+            delayMs={delayMs}
+            onDelay={onDelay}
+            look={look}
+            onLook={onLook}
+            lyrics={lyrics}
+          />
         )}
         <div className="flex items-center gap-2.5 rounded-[30px] bg-(--menu-rail) px-[14px] py-2 shadow-[0_8px_30px_rgba(0,0,0,.45)]">
           <button
@@ -341,6 +352,7 @@ function Tray({
   onDelay,
   look,
   onLook,
+  lyrics,
 }: {
   guide: number;
   onGuide: (percent: number) => void;
@@ -348,6 +360,7 @@ function Tray({
   onDelay: (ms: number) => void;
   look: Look;
   onLook: (change: Partial<Look>) => void;
+  lyrics?: { choice: LyricsChoice; onChange: (choice: LyricsChoice) => void };
 }) {
   return (
     <div className="flex flex-wrap gap-2 rounded-2xl bg-(--menu-rail) p-2 shadow-[0_8px_30px_rgba(0,0,0,.45)]">
@@ -370,6 +383,11 @@ function Tray({
         <span className="text-[12px] text-(--menu-text-2)">Atraso da letra</span>
         <DelayField ms={delayMs} onChange={onDelay} />
       </Chip>
+      {lyrics && (
+        <Chip>
+          <LyricsSwitch {...lyrics} />
+        </Chip>
+      )}
       <Switch label="Imagem de fundo" on={look.background} onChange={(background) => onLook({ background })} />
       <Switch label="Borda na letra" on={look.outline} onChange={(outline) => onLook({ outline })} />
       <Switch label="Nota no fim" on={look.score} onChange={(score) => onLook({ score })} />

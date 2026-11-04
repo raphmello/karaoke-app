@@ -2,6 +2,21 @@
 
 As mudanças de cada release do Karaokê, da mais nova para a mais antiga. As versões seguem o formato `ANO.MAJOR.MINOR`, e cada release tem um branch `release/<versão>` e uma tag `v<versão>`.
 
+## [2026.1.13] - 2026-11-04
+
+### Novidades
+
+- **Pronúncia:** músicas com a letra em japonês, chinês, coreano, russo, grego e outras escritas fora do alfabeto latino ganham uma segunda letra, escrita para quem lê português e sincronizada palavra por palavra com a original. Ela vem da romanização feita por fãs no LRCLIB; sem ela, o próprio app lê o coreano, o chinês, o cirílico e o grego. Na bandeja da barra da TV, "Letra: Pronúncia | Original" troca na hora, e a TV avisa no começo da música qual letra está mostrando.
+- **Pronúncia automática só com resposta:** quando os fãs não escreveram a pronúncia, a fila pergunta a quem adicionou a música, ao dono da sala e ao host se querem usar a automática ("Usar automática" ou "Não, só a original"). A música só toca depois da resposta. O host também responde pelo Acervo, para uma música reprocessada que está em nenhuma fila, pelo aviso com "Ver no Acervo".
+- **Corrigir a pronúncia:** em ☰ Menu → Painel → Acervo → Trocar letra → Pronúncia, o host corrige as linhas ou escreve uma pronúncia quando não foi encontrada, sem refazer a sincronia.
+- **Reprocessar mais simples:** no lugar das etapas soltas, cinco escolhas com o que cada uma refaz e quanto tempo leva (Tudo, Letra, Sincronia, Pronúncia e Áudio). Ao marcar uma, as que ela já inclui aparecem marcadas, e um resumo diz o que vai rodar. Depois de reprocessar, o menu abre em Jobs, na música, e ela continua no Acervo ("em processamento"), podendo entrar na fila: toca quando ficar pronta.
+- **Avisos que esperam uma resposta:** a transcrição de uma letra não encontrada e a pronúncia automática aparecem num aviso no alto, com "Ver na fila", na TV, no celular do host e no de quem adicionou a música. O aviso da música que não deu para preparar também tem "Ver na fila" (ou "Ver em Jobs"), onde o host tem "Tentar de novo" e "Reprocessar…".
+
+### Correções
+
+- A letra original em japonês e chinês aparece sem espaço entre as palavras.
+- Para uma música que já estava no acervo, reprocesse a "Pronúncia" em ☰ Menu → Painel → Acervo → Reprocessar.
+
 ## [2026.1.12] - 2026-11-04
 
 ### Novidades

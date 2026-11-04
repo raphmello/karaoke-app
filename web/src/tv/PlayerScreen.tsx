@@ -9,6 +9,7 @@ import { Alternating, CornerCard } from "./CornerCard";
 import type { Look } from "./look";
 import type { Command } from "../room/useRoom";
 import { Lyrics } from "./Lyrics";
+import { LyricsSwitch, PhoneticNotice, useLyricsChoice } from "./phonetic";
 import { FloatingBar } from "./controls/FloatingBar";
 import { formatTime } from "./time";
 
@@ -69,6 +70,17 @@ export function PlayerScreen({
   const media = song.media!;
   // Keyed by the address, which carries the song's version: a reprocessed song brings its new lyrics
   const lyrics = useQuery({ queryKey: ["lyrics", media.lyrics], queryFn: () => fetchLyrics(media.lyrics) });
+  // The phonetic version, when the song has one (tv/phonetic.tsx): the one shown, unless this window chose the original
+  const phonetic = useQuery({
+    queryKey: ["lyrics", media.phonetic],
+    queryFn: () => fetchLyrics(media.phonetic!),
+    enabled: !!media.phonetic,
+  });
+  const [choice, setChoice] = useLyricsChoice();
+  const usePhonetic = !!media.phonetic && choice === "phonetic" && !phonetic.isError;
+  const lines = (usePhonetic ? phonetic.data?.lines : lyrics.data?.lines) ?? null;
+  const lyricsPending = lyrics.isPending || (usePhonetic && phonetic.isPending);
+  const switchLyrics = media.phonetic ? { choice, onChange: setChoice } : undefined;
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -199,11 +211,12 @@ export function PlayerScreen({
           <main className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
             {loadError ? (
               <p className="px-4 text-center text-lg text-red-400">Não foi possível carregar a música: {loadError}</p>
-            ) : !loaded || lyrics.isPending ? (
+            ) : !loaded || lyricsPending ? (
               <p className="text-lg text-zinc-400">Carregando a música…</p>
             ) : (
-              <Lyrics lines={lyrics.data?.lines ?? null} t={clock.lyrics} title={title} outline={look.outline} compact />
+              <Lyrics lines={lines} t={clock.lyrics} title={title} outline={look.outline} compact />
             )}
+            <PhoneticNotice song={song} compact />
           </main>
 
           {upNext && <div className="px-4 pb-2 short:hidden">{upNext}</div>}
@@ -300,6 +313,7 @@ export function PlayerScreen({
                     +
                   </button>
                 </div>
+                {switchLyrics && <LyricsSwitch {...switchLyrics} />}
                 <div className="flex flex-wrap gap-2">
                   <Toggle label="Imagem de fundo" on={look.background} onChange={(background) => onLook({ background })} />
                   <Toggle label="Borda na letra" on={look.outline} onChange={(outline) => onLook({ outline })} />
@@ -319,6 +333,8 @@ export function PlayerScreen({
       {look.background && <Backdrop videoId={song.video_id} fallback={media.thumb} />}
       <div className="relative z-10 flex min-h-0 flex-1 flex-col">
         {banner}
+        {/* At the top, between the corner card and the QR, where the lyrics never go */}
+        <PhoneticNotice song={song} />
         <header className="flex items-start justify-between gap-4 px-6 py-4">
           {/* Tocando agora and A seguir take turns in the corner (tv/CornerCard.tsx), off the lyrics */}
           <div className="min-w-0">
@@ -340,10 +356,10 @@ export function PlayerScreen({
         <main className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden">
           {loadError ? (
             <p className="text-2xl text-red-400">Não foi possível carregar a música: {loadError}</p>
-          ) : !loaded || lyrics.isPending ? (
+          ) : !loaded || lyricsPending ? (
             <p className="text-2xl text-zinc-400">Carregando a música…</p>
           ) : (
-            <Lyrics lines={lyrics.data?.lines ?? null} t={clock.lyrics} title={title} outline={look.outline} />
+            <Lyrics lines={lines} t={clock.lyrics} title={title} outline={look.outline} />
           )}
         </main>
 
@@ -364,6 +380,7 @@ export function PlayerScreen({
           onDelay={changeDelay}
           look={look}
           onLook={onLook}
+          lyrics={switchLyrics}
           region={region}
         />
       </div>
