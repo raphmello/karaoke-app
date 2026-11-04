@@ -42,7 +42,17 @@ def lyrics_gate(ctx: Context) -> str | None:
 
 
 def default_stages() -> list[Stage]:
-    from karaoke.pipeline import alignment, download, encode, key, language, lyrics, metadata, separation
+    from karaoke.pipeline import (
+        alignment,
+        download,
+        encode,
+        key,
+        language,
+        lyrics,
+        metadata,
+        phonetic,
+        separation,
+    )
 
     return [
         Stage("metadata", metadata.run),
@@ -51,6 +61,7 @@ def default_stages() -> list[Stage]:
         Stage("separation", separation.run),
         Stage("language", language.run),
         Stage("alignment", alignment.run),
+        Stage("phonetic", phonetic.run),
         Stage("key", key.run),
         Stage("encode", encode.run),
     ]

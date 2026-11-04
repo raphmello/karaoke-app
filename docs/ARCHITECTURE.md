@@ -69,6 +69,7 @@ O backend inteiro é Python e o frontend é React com TypeScript. Os modelos de 
 | Alinhamento | [stable-ts](https://github.com/jianfch/stable-ts) `model.align()` com Whisper turbo (openai-whisper), sem VAD | Deslocamento e deriva do LRC (música inteira) e tempo de cada palavra (linha a linha); ~26 s por música, 3,9 GB de VRAM |
 | Transcrição de reserva | stable-ts com Whisper turbo | Só quando a letra não é encontrada e o dono da entrada autoriza |
 | Idioma da letra | [lingua](https://github.com/pemistahl/lingua-py) (`lingua-language-detector`) | Detecta o idioma pelo texto da letra, para o alinhamento |
+| Pronúncia (letra fonética) | A romanização feita por fãs no LRCLIB; sem ela, regras próprias (coreano e grego), [pypinyin](https://github.com/mozillazg/python-pinyin) (chinês) e [anyascii](https://github.com/anyascii/anyascii) (cirílico); [fugashi](https://github.com/polm/fugashi) com unidic-lite só por dentro, para casar a romanização com a letra original | A segunda letra, escrita para quem lê português e sincronizada palavra por palavra com a original |
 | Tom | [rubberband-web](https://github.com/delude88/rubberband-web): [Rubber Band](https://breakfastquay.com/rubberband/) em WebAssembly, como AudioWorklet, motor R3 (`setHighQuality(true)`) | Muda o tom ao vivo na TV, de meio em meio tom, de −6 a +6; ~17% de um núcleo e 4096 amostras de atraso (~85 ms a 48 kHz). No tom original fica fora do caminho do áudio |
 | Detecção de tom | essentia `KeyExtractor` | Mostra o tom original da música |
 | Proxy e arquivos | Caddy | Serve o frontend e `/media` com suporte a Range; faz proxy para a API |
@@ -151,7 +152,7 @@ Cada `video_id` é processado no máximo uma vez. Tudo o que o pipeline produz f
 - `songs.video_id` é chave primária.
 - Um índice único parcial em `jobs (video_id, kind)` para status `pending` ou `running` impede dois jobs iguais ativos ao mesmo tempo.
 - Cada etapa registra sua conclusão em `manifest.json`. Se o worker cair no meio, o job retoma da primeira etapa incompleta.
-- Reprocessar só acontece por ação explícita do host (por exemplo, trocar a letra) e só nas etapas pedidas.
+- Reprocessar só acontece por ação explícita do host (por exemplo, trocar a letra) e só nas etapas pedidas. A tela oferece poucas escolhas, cada uma dizendo o que refaz e quanto leva: Tudo, Letra, Sincronia, Pronúncia e Áudio. Uma escolha mostra as que ela já inclui, e uma linha diz o que vai rodar. A API continua recebendo etapas e refaz também as que dependem delas. Uma música reprocessada continua no Acervo, com o status ("em processamento"), e depois que o host manda reprocessar o menu abre em Jobs, na música.
 
 **Etapas do job `process`.** As etapas 1 e 2 são leves e rodam antes de baixar qualquer coisa. As demais rodam um job por vez. Como a GPU tem 8 GB de VRAM, só o modelo da etapa atual fica carregado.
 
@@ -161,9 +162,10 @@ Cada `video_id` é processado no máximo uma vez. Tudo o que o pipeline produz f
 4. Separação: audio-separator, com BS-RoFormer em sobreposição 2 e autocast, gera `instrumental.flac` e `vocals.flac`.
 5. Idioma: detectado pelo texto da letra, com lingua; na transcrição, pelo próprio Whisper.
 6. Alinhamento, com stable-ts e Whisper turbo, sem VAD, sobre `vocals.flac`. Com letra sincronizada, as linhas seguem o LRC e as palavras são alinhadas linha a linha (veja abaixo). Com letra só em texto, o texto inteiro é alinhado de uma vez. Na transcrição autorizada, o Whisper transcreve a voz e a letra fica marcada como "transcrita". Em todos os casos, grava início, fim e confiança de cada palavra.
-7. Tom original: essentia sobre o instrumental.
-8. Codificação para reprodução: Opus 160 kbps de cada stem.
-9. Pronto: `songs.status = ready` e evento `song.ready` para as telas.
+7. Pronúncia (letra fonética), só quando a letra está numa escrita fora do alfabeto latino (veja abaixo). Leva segundos. Se falhar, a música fica pronta só com a letra original: a pronúncia nunca impede a música de tocar.
+8. Tom original: essentia sobre o instrumental.
+9. Codificação para reprodução: Opus 160 kbps de cada stem.
+10. Pronto: `songs.status = ready` e evento `song.ready` para as telas.
 
 **Novas tentativas e aviso da música que falhou.** Um job que falha nas etapas que dependem da rede, do YouTube e do LRCLIB (metadados, letra e download) roda de novo sozinho, a partir da etapa que falhou (o `manifest.json` guarda as anteriores), até 3 vezes, com 3 s de espera entre elas; `attempts` conta as tentativas, e só depois da última sai o `song.failed`. Não tentam de novo as mensagens para pessoas (vídeo longo demais) nem as etapas da GPU, que falhariam igual. O LRCLIB fora do ar (5xx, tempo esgotado ou conexão caída) já é tentado de novo dentro da etapa da letra, 6 vezes ao todo, com 2, 5, 10, 20 e 30 s de espera (cerca de 1 min; em 16/10/2026 um 503 durou mais de 20 s); se continuar fora, a etapa falha com uma mensagem para pessoas, "O site das letras (LRCLIB) está fora do ar agora; tente de novo em alguns minutos.", que o job ainda tenta de novo como as outras. Durante as esperas, o worker não prepara outra música. Quando as tentativas acabam, toda TV mostra um aviso no alto, sem cobrir a letra, que some em 20 s ou pelo ✕: "Não deu para preparar '<música>'." Na TV com o cookie de host, ele tem "Tentar de novo" (o mesmo "Tentar processar de novo" da fila); noutra TV, diz "O admin pode tentar de novo no Painel, ou adicione a música de novo." No celular, a música que falhou na fila diz aos convidados "Adicione de novo para tentar outra vez"; o host continua com "Tentar processar de novo".
 
@@ -185,13 +187,25 @@ Cada `video_id` é processado no máximo uma vez. Tudo o que o pipeline produz f
 
 Isso custa ~19 s a mais por música que alinhar só a música inteira.
 
+**Pronúncia (letra fonética).** Uma letra numa escrita fora do alfabeto latino (japonês, chinês, coreano, cirílico, grego, tailandês, hindi e outras; árabe e hebraico ficam de fora, porque a escrita não registra as vogais) ganha uma segunda versão, escrita para quem lê português e sincronizada com a original palavra por palavra. Vale quando pelo menos 10% das letras da letra estão fora do alfabeto latino, o que inclui as músicas mistas, como APT., em inglês com partes em coreano; as partes em alfabeto latino ficam como estão.
+
+- **De onde vem:** da romanização feita por fãs no LRCLIB, uma versão em alfabeto latino da mesma música (com ou sem horários, de qualquer duração), aceita só se concordar com a leitura da original em pelo menos 80% (assim uma tradução ou outra música fica de fora). Ela casa com a original pela ordem do texto, letra por letra, e se divide nas linhas e palavras dela; cada palavra herda o tempo da original. Sem ela, a leitura do próprio app, só nas escritas em que ela é confiável: coreano (regras próprias, pela pronúncia), chinês (pypinyin), cirílico (anyascii) e grego (regras próprias, do grego moderno). No japonês não há leitura automática: um kanji tem mais de uma leitura, e a música costuma usar a menos comum. Nele, e no hindi e nas demais escritas, fugashi com unidic-lite, regras próprias e anyascii servem só por dentro, para casar a romanização com os caracteres da original e medir a concordância. O pykakasi fica de fora (licença GPL).
+- **A automática só vale com resposta.** A etapa a prepara (`phonetic_source` `pendente`), e a fila pergunta ao dono da entrada, ao dono da sala e ao host: "Não encontramos a pronúncia dos fãs para esta música. Usar a pronúncia automática? Ela pode ter erros.", com "Usar automática" e "Não, só a original". A resposta vale para a música, em todas as filas, e fica em `song_events` (`phonetic_auto_accepted` ou `phonetic_auto_declined`). Enquanto ninguém responde, a música não toca: a TV passa para a próxima pronta, como na pergunta da transcrição.
+- **Grafia para o português**, sobre a romanização: shi → xi, chi → tchi, ji → dji, ge/gi → gue/gui, y → i, w → u, vogais longas como ou e ei, e as partículas は, へ e を como wa, e e o. No coreano, eo → ó, eu → u e ae → é; no cirílico, zh → j, sh → x e kh → rr; no grego, kh → rr. É uma aproximação para cantar, não uma transcrição exata.
+- **Pipeline:** a etapa `phonetic` roda depois do alinhamento, no processador. Roda de novo quando a letra é trocada, quando o alinhamento é refeito e pelo Reprocessar (opção "Pronúncia"). As músicas já preparadas ganham a pronúncia pelo Reprocessar.
+- **Armazenamento:** `lyrics/phonetic.json`, com as mesmas linhas de `aligned.json`, uma para uma, as palavras fonéticas com os seus tempos e a confiança das palavras da original que cada uma lê (a linha acende inteira onde a sincronia não é confiável, como na original), a origem (`lrclib`, `auto` ou `host`) e a escrita; e `lyrics/romanized.json`, a romanização do LRCLIB como veio.
+- **Modelo de dados e API:** `songs` ganha `phonetic_source` (veja o modelo de dados), com migração. A música informa `phonetic_source` e, com a pronúncia, o endereço dela. `PUT /api/songs/{video_id}/phonetic` (só o host) recebe um texto para cada linha da letra: corrige a pronúncia, mantendo o tempo das palavras que estavam ali, ou, sem pronúncia, casa as linhas com a original como faz com a dos fãs. Nada é processado de novo. `POST /api/rooms/{code}/queue/{id}/phonetic` (o dono da entrada, o dono da sala ou o host) responde à pergunta da automática: `accept` verdadeiro a usa; falso a descarta. `POST /api/songs/{video_id}/phonetic/auto` (só o host) faz o mesmo pelo Acervo, para uma música reprocessada que está em nenhuma fila. Não há evento novo: a fila (`queue.snapshot`) já leva o `phonetic_source` de cada música.
+- **Telas:** na bandeja da barra da TV (e nos ajustes do layout de celular da TV), "Letra: Pronúncia | Original", só quando há pronúncia; a pronúncia é o padrão, e cada janela lembra a escolha. Quando a música começa, a TV avisa por 6 s qual letra está mostrando e de onde veio ("Pronúncia da comunidade", "Pronúncia automática (pode ter erros)" ou "Pronúncia corrigida pelo admin"), ou que não encontrou a dos fãs, ou que a automática espera uma resposta na fila. Na fila do celular, a música pronta diz "letra com pronúncia", "pronúncia automática: aguardando resposta" (com a pergunta, para o dono da entrada, o dono da sala e o host) ou "sem letra com pronúncia". Em Painel → Acervo, "Trocar letra" ganha a aba "Pronúncia", para o host corrigir as linhas ou, sem pronúncia, escrever a romanização. A letra original em japonês e chinês passa a aparecer sem espaço entre as palavras.
+- **Avisos que esperam uma resposta** (a transcrição de uma letra não encontrada e a pronúncia automática) aparecem num aviso no alto, com "Ver na fila", na TV, no celular do host e no de quem adicionou a música. Para o host, uma música em nenhuma fila (reprocessada no Acervo) tem "Ver no Acervo", onde ele responde. A música que não deu para preparar também leva ao "Ver na fila", onde o host tem "Tentar de novo" e "Reprocessar…".
+- **Licenças:** fugashi (MIT/BSD), unidic-lite (BSD), pypinyin (MIT) e anyascii (ISC). A imagem do Docker cresce cerca de 60 MB, quase tudo o dicionário de japonês.
+
 **Quando a letra não é encontrada**
 
 O app pergunta antes de baixar qualquer coisa, então nada pesado roda para uma música cuja transcrição ninguém autorizou.
 
 1. A música e as entradas dela passam para `awaiting_decision`. O evento `song.lyrics_missing` chega ao celular de cada dono e ao host.
 2. O celular mostra: "Não encontramos a letra desta música. Quer que ela seja transcrita automaticamente? A transcrição pode ter erros." Os botões são **Sim, transcrever** e **Não, remover**.
-3. **Sim**, de qualquer dono ou do host: nasce um novo job `process` com transcrição ligada. Pelo `manifest.json` ele pula as etapas 1 e 2 e segue da 3 à 9. Todas as entradas daquele vídeo seguem juntas.
+3. **Sim**, de qualquer dono ou do host: nasce um novo job `process` com transcrição ligada. Pelo `manifest.json` ele pula as etapas 1 e 2 e segue da 3 à 10. Todas as entradas daquele vídeo seguem juntas.
 4. **Não**: a entrada de quem respondeu sai da fila como `removed`. Quando o vídeo fica sem nenhuma entrada ativa, a música é marcada como `removed`, e nada é baixado nem processado.
 5. Enquanto ninguém responde, a entrada não toca. Quando chega a vez dela, a fila passa para a próxima e ela continua esperando.
 
@@ -225,7 +239,7 @@ Seis tabelas no SQLite. `songs` guarda cada vídeo uma única vez e nunca é apa
 
 | Tabela | Chave | Campos principais | Regras |
 | --- | --- | --- | --- |
-| `songs` | `video_id` (11 caracteres) | `title`, `artist`, `track`, `channel`, `duration_s`, `thumbnail_url`, `status`, `stage`, `original_key`, `language`, `lyrics_source`, `alignment_confidence`, `pipeline_version`, `error`, `created_at`, `ready_at`, `removed_at`, `removed_reason` | Uma linha por vídeo, nunca apagada. `status`: pending, awaiting_decision, processing, ready, failed, removed ou purged (apagada de vez: a linha fica, a pasta não). `lyrics_source`: lrclib, syncedlyrics, transcrita, manual ou nenhuma |
+| `songs` | `video_id` (11 caracteres) | `title`, `artist`, `track`, `channel`, `duration_s`, `thumbnail_url`, `status`, `stage`, `original_key`, `language`, `lyrics_source`, `phonetic_source`, `alignment_confidence`, `pipeline_version`, `error`, `created_at`, `ready_at`, `removed_at`, `removed_reason` | Uma linha por vídeo, nunca apagada. `status`: pending, awaiting_decision, processing, ready, failed, removed ou purged (apagada de vez: a linha fica, a pasta não). `lyrics_source`: lrclib, syncedlyrics, transcrita, manual ou nenhuma. `phonetic_source`: vazio numa letra em alfabeto latino; `lrclib`, `auto` ou `host` com a pronúncia; `pendente` com a automática pronta, esperando a resposta; `nenhuma` quando a escrita pede pronúncia e não há romanização nem leitura automática, ou quando a automática foi recusada |
 | `song_events` | `id` | `video_id`, `kind`, `guest_id` (ou host), `details`, `created_at` | Histórico só de inclusão: criada, letra não encontrada, transcrição aceita ou recusada, pronta, removida, reativada, tentada de novo, apagada de vez |
 | `jobs` | `id` | `kind` (process), `video_id`, `options` (ex.: transcrever), `status`, `stage`, `progress`, `attempts`, `error`, `created_at`, `started_at`, `finished_at` | Índice único parcial impede dois jobs iguais ativos |
 | `rooms` | `id` | `code` (vai no QR), `name`, `owner_guest_id` (vazio quando o host criou), `password_hash` (scrypt; vazio quando a sala é pública), `is_active`, `created_at`, `expires_at` | Várias salas ao mesmo tempo. Uma sala está aberta enquanto `is_active` e `expires_at` no futuro (24 h depois da criação); removida ou expirada, `is_active` vira falso e ela some da lista. `host_pin_hash`, do tempo de uma sala só, não é mais usado |
@@ -257,7 +271,9 @@ data/                         volume Docker "karaoke-data"
         │   └── vocals.opus
         └── lyrics/
             ├── source.json   letra original e de onde veio
-            └── aligned.json  linhas → palavras com início, fim e confiança
+            ├── aligned.json  linhas → palavras com início, fim e confiança
+            ├── phonetic.json pronúncia, linha a linha com aligned.json (só em escritas fora do alfabeto latino)
+            └── romanized.json a romanização do LRCLIB, como veio
 ```
 
 Formato de `aligned.json` (tempos em segundos):
@@ -304,10 +320,11 @@ Várias salas ficam abertas ao mesmo tempo, cada uma com a sua fila, e o acervo 
 | Remover entrada da fila (se estiver tocando, pula) | Não | Qualquer uma | Sim | Não | As que ela adicionou | Sim |
 | Mudar o tom da entrada | Não | Qualquer uma | Sim | Não | As que ela adicionou e a que está tocando | Sim |
 | Responder se a letra deve ser transcrita | Não | Qualquer uma | Sim | Não | As que ela adicionou | Sim |
+| Responder se a pronúncia automática vale | Não | Qualquer uma | Sim | Não | As que ela adicionou | Sim |
 | Reordenar a fila | Não | Sim | Não | Não | Não | Sim |
 | Tocar, pausar, pular | Não | Sim | Não | Não | Sim | Sim |
 | Ajustar voz guia e atraso da TV | Não | Sim | Não | Não | Não | Sim |
-| Trocar letra ou reprocessar etapas | Não | Não | Não | Não | Não | Sim |
+| Trocar letra, corrigir a pronúncia ou reprocessar etapas | Não | Não | Não | Não | Não | Sim |
 | Remover música do acervo (apaga os arquivos) | Não | Não | Não | Não | Não | Sim |
 
 Visitante é quem abriu o app e ainda não entrou em nenhuma sala: ele só vê a lista e cria uma sala, que o torna dono e convidado dela. O dono da sala é o "host" da sala dele: nas outras salas, é um convidado como qualquer outro. O acervo e o painel continuam só do host, porque são de todas as salas. A coluna TV vale para pedidos à API. A voz guia e o atraso que a própria TV ajusta na tela ficam só no navegador dela. A TV é dona das músicas que adiciona, como um convidado é das dele: cada sala ganha um convidado interno "TV" (com `token_hash` igual a `tv:<id da sala>`, que nenhum celular consegue ter, porque o de um convidado é um sha256), e as músicas da TV ficam no nome dele. Na fila elas aparecem como adicionadas por "TV", e o nome de quem canta é o que for digitado.
@@ -395,9 +412,10 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `PATCH /api/rooms/{code}/queue/{id}` | Dono da entrada (tom), TV (tom das que adicionou e da que está tocando), dono da sala ou host (tom e posição) | Altera a entrada |
 | `DELETE /api/rooms/{code}/queue/{id}` | Dono da entrada, TV (as que adicionou), dono da sala ou host | Remove a entrada (remoção lógica) |
 | `POST /api/rooms/{code}/queue/{id}/transcription` | Dono da entrada, dono da sala ou host | Responde à pergunta: `{"accept": true}` transcreve; `false` remove a entrada |
-| `GET /api/songs/{video_id}` | Convidado | Status, metadados, tom original e URLs de mídia |
+| `POST /api/rooms/{code}/queue/{id}/phonetic` | Dono da entrada, dono da sala ou host | Responde à pergunta da pronúncia automática: `{"accept": true}` a usa; `false` toca a letra original. Vale para a música, em todas as filas |
+| `GET /api/songs/{video_id}` | Convidado | Status, metadados, tom original, `phonetic_source` e URLs de mídia (com a pronúncia, o endereço dela) |
 | `GET /api/preview/{video_id}` | Convidado | Prévia de um vídeo ainda não baixado, antes de adicioná-lo: a API acha o áudio com o yt-dlp e o repassa, com Range. Músicas do acervo tocam a prévia direto de `/media` |
-| `GET /api/library?q=` | Convidado | Acervo de músicas prontas; para o host, com o tamanho de cada uma em `disk_bytes`, o que remover libera |
+| `GET /api/library?q=` | Convidado | Acervo de músicas prontas e das que já foram prontas e estão sendo preparadas de novo (reprocessadas), que ficam nele com o status e podem entrar na fila, que espera por elas; para o host, com o tamanho de cada uma em `disk_bytes`, o que remover libera |
 | `POST /api/host/login` | Qualquer um | Troca o PIN do host por um cookie de host |
 | `POST /api/host/logout` | Qualquer um | Apaga o cookie de host ("Sair do admin" no menu da TV); o cookie de TV e o de convidado ficam |
 | `POST /api/rooms` | Qualquer um (fora o host: 10 por hora por endereço e até 20 salas abertas) | Cria uma sala `{name, password?, nickname?}` com um código novo; quem cria é o dono e já entra nela (o host não é dono). O apelido é obrigatório para quem ainda não está em nenhuma sala. As outras salas continuam abertas |
@@ -405,6 +423,8 @@ Comandos vão por REST; mudanças de estado voltam para todas as telas por WebSo
 | `POST /api/rooms/{code}/tv` | Quem sabe a senha da sala, o dono da sala (sem a senha) ou, numa sala sem senha, qualquer um (o host já é a TV de todas) | Dá um cookie de TV daquela sala `{password?}`. Senhas erradas contam no limite dos PINs |
 | `POST /api/rooms/{code}/player/{ação}` | Host ou dono da sala; a TV, só play, pause e skip | play, pause, skip, ou `guide` e `delay` com `{"value": ...}` (voz guia de 0 a 100% e atraso da TV em ms) |
 | `PUT /api/songs/{video_id}/lyrics` | Host | Troca a letra e realinha |
+| `POST /api/songs/{video_id}/phonetic/auto` | Host | O mesmo `{"accept": ...}`, pelo Acervo, para uma música que está em nenhuma fila |
+| `PUT /api/songs/{video_id}/phonetic` | Host | Corrige a pronúncia (um texto para cada linha da letra) ou, sem pronúncia, escreve uma. Nada é processado de novo |
 | `POST /api/songs/{video_id}/reprocess` | Host | Reprocessa as etapas escolhidas |
 | `DELETE /api/songs/{video_id}` | Host | Remove a música do acervo de vez: apaga a pasta e devolve os bytes liberados (`freed_bytes`); registro e histórico ficam |
 | `POST /api/songs/purge-removed` | Host | Apaga de vez as músicas removidas do jeito antigo, que ainda ocupam o disco, e devolve quantas e os bytes liberados |

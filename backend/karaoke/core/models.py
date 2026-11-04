@@ -44,6 +44,9 @@ class Song(Base):
     language: Mapped[str | None] = mapped_column(String(8))
     lyrics_source: Mapped[str | None] = mapped_column(String(20))  # lrclib, syncedlyrics, transcrita, manual, nenhuma
     alignment_confidence: Mapped[float | None] = mapped_column(Float)
+    # Where the phonetic lyrics came from (pipeline/phonetic.py): lrclib or host; nenhuma when the lyrics need them
+    # and no romanization was found; None for lyrics in Latin letters
+    phonetic_source: Mapped[str | None] = mapped_column(String(20))
     pipeline_version: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

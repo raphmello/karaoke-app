@@ -33,6 +33,8 @@ from karaoke.api.schemas import (
     JoinIn,
     LoginIn,
     LyricsIn,
+    PhoneticAnswerIn,
+    PhoneticIn,
     PlayerValueIn,
     PurgeOut,
     PurgeRemovedOut,
@@ -83,6 +85,7 @@ from karaoke.core.songs import (
     QueueError,
     TooLong,
     add_to_queue,
+    answer_phonetic,
     answer_transcription,
     close_room,
     move_entry,
@@ -91,6 +94,7 @@ from karaoke.core.songs import (
     remove_entry,
     remove_song,
     replace_lyrics,
+    replace_phonetic,
     reprocess,
     skip_playing,
 )
@@ -112,6 +116,10 @@ ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O or 1/I, so a c
 
 # --- songs ---------------------------------------------------------------------------------------------------------
 
+# In the library: ready, or ready once and being prepared again (a reprocess), which stays there with its status
+IN_LIBRARY = or_(Song.status == READY, Song.ready_at.is_not(None) & Song.status.not_in((REMOVED, PURGED)))
+
+
 @api.get("/search")
 def search(
     request: Request, db: Sessions, q: Annotated[str, Query(min_length=1, max_length=200)]
@@ -121,7 +129,7 @@ def search(
     results = request.app.state.search(q)
     with transaction(db) as session:
         ids = [r["video_id"] for r in results]
-        ready = set(session.scalars(select(Song.video_id).where(Song.video_id.in_(ids), Song.status == READY)))
+        ready = set(session.scalars(select(Song.video_id).where(Song.video_id.in_(ids), IN_LIBRARY)))
     return [SearchResult(**r, in_library=r["video_id"] in ready) for r in results]
 
 
@@ -157,10 +165,12 @@ def library(
     settings: AppSettings,
     q: Annotated[str | None, Query(max_length=200)] = None,
 ) -> list[SongOut]:
-    """The songs that play right away. For the host, each one's size: what removing it frees, said before."""
+    """The songs that play right away, and those that were ready once and are being prepared again (reprocessed):
+    they stay in the library with their status, and can still go in the queue, which waits for them. For the host,
+    each one's size: what removing it frees, said before."""
     with transaction(db) as session:
         actor = deps.require_actor(request, session)
-        query = select(Song).where(Song.status == READY)
+        query = select(Song).where(IN_LIBRARY)
         for word in (q or "").split():
             pattern = f"%{word}%"
             query = query.where(or_(Song.title.ilike(pattern), Song.artist.ilike(pattern), Song.track.ilike(pattern)))
@@ -389,6 +399,7 @@ REFUSED_VERB = {
     Action.REMOVE_ENTRY: "remover esta música",
     Action.CHANGE_KEY: "mudar o tom desta música",
     Action.ANSWER_TRANSCRIPTION: "responder sobre a letra desta música",
+    Action.ANSWER_PHONETIC: "responder sobre a pronúncia desta música",
 }
 
 
@@ -504,6 +515,21 @@ def transcription(request: Request, db: Sessions, code: str, entry_id: int, body
     notify(hub(request).queue_changed, None)  # every entry of the video changes, in any room
 
 
+@api.post("/rooms/{code}/queue/{entry_id}/phonetic", status_code=204)
+def phonetic_answer(request: Request, db: Sessions, settings: AppSettings, code: str, entry_id: int,
+                    body: PhoneticAnswerIn) -> None:
+    """The answer to "usar a pronúncia automática?": yes uses it, no keeps the original; for the song, in every room."""
+    with transaction(db) as session:
+        room, actor = deps.room_actor(request, session, code)
+        entry = room_entry(session, room, entry_id)
+        require(actor, Action.ANSWER_PHONETIC, entry, session)
+        try:
+            answer_phonetic(session, settings, session.get(Song, entry.video_id), body.accept, actor.owner_id or HOST)
+        except QueueError as exc:
+            raise HTTPException(409, str(exc)) from exc
+    notify(hub(request).queue_changed, None)  # every entry of the song changes, in any room
+
+
 PLAYER_VALUES = {"guide": (0.0, 100.0), "delay": (-2000.0, 2000.0)}  # % of the guide voice; TV delay in ms
 
 
@@ -585,6 +611,24 @@ def lyrics(request: Request, db: Sessions, settings: AppSettings, video_id: str,
     with transaction(db) as session:
         _, song = host_song(request, session, video_id, Action.REPROCESS)
         conflict(replace_lyrics, session, settings, song, body.text)
+    notify(hub(request).queue_changed, None)
+
+
+@api.put("/songs/{video_id}/phonetic", status_code=204)
+def phonetic(request: Request, db: Sessions, settings: AppSettings, video_id: str, body: PhoneticIn) -> None:
+    """The host's phonetic lyrics, one text per line, timed against the ones there; nothing is processed again."""
+    with transaction(db) as session:
+        _, song = host_song(request, session, video_id, Action.REPROCESS)
+        conflict(replace_phonetic, session, settings, song, body.lines)
+    notify(hub(request).queue_changed, None)
+
+
+@api.post("/songs/{video_id}/phonetic/auto", status_code=204)
+def phonetic_auto(request: Request, db: Sessions, settings: AppSettings, video_id: str, body: PhoneticAnswerIn) -> None:
+    """The host's answer to "usar a pronúncia automática?" from the library, for a song in no queue too."""
+    with transaction(db) as session:
+        _, song = host_song(request, session, video_id, Action.REPROCESS)
+        conflict(answer_phonetic, session, settings, song, body.accept, HOST)
     notify(hub(request).queue_changed, None)
 
 

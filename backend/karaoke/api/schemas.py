@@ -18,6 +18,7 @@ class Media(BaseModel):
     lyrics: str
     thumb: str
     original: str | None = None  # the downloaded audio, voice and all: the library's preview
+    phonetic: str | None = None  # the phonetic lyrics, line for line with `lyrics`, when the song has them
 
 
 class SongOut(BaseModel):
@@ -34,6 +35,8 @@ class SongOut(BaseModel):
     language: str | None
     lyrics_source: str | None
     alignment_confidence: float | None
+    phonetic_source: str | None  # lrclib, auto, host: phonetic lyrics; pendente: automatic, waiting for an answer;
+    # nenhuma: needed but not found (or the automatic declined); None: Latin
     error: str | None
     media: Media | None
     disk_bytes: int | None = None  # for the host: what removing it frees
@@ -53,6 +56,8 @@ class SongOut(BaseModel):
                 instrumental=f"{base}/play/instrumental.opus{version}",
                 vocals=f"{base}/play/vocals.opus{version}",
                 lyrics=f"{base}/lyrics/aligned.json{version}",
+                phonetic=(f"{base}/lyrics/phonetic.json{version}"
+                          if song.phonetic_source in ("lrclib", "auto", "host") else None),
                 thumb=f"{base}/thumb.jpg{version}",
                 original=f"{base}/{original}{version}" if original else None,
             )
@@ -70,6 +75,7 @@ class SongOut(BaseModel):
             language=song.language,
             lyrics_source=song.lyrics_source,
             alignment_confidence=song.alignment_confidence,
+            phonetic_source=song.phonetic_source,
             error=song.error,
             media=media,
         )
@@ -81,7 +87,7 @@ class SearchResult(BaseModel):
     channel: str | None
     duration_s: float | None
     thumbnail_url: str
-    in_library: bool  # ready now: plays without waiting for processing
+    in_library: bool  # ready, or ready once and being reprocessed: shown in the library, not among the videos
 
 
 class LoginIn(BaseModel):
@@ -201,6 +207,10 @@ class TranscriptionIn(BaseModel):
     accept: bool
 
 
+class PhoneticAnswerIn(BaseModel):
+    accept: bool  # use the automatic phonetic lyrics, or play the original
+
+
 class EventIn(BaseModel):
     """A worker report: song.progress, song.ready, song.failed or song.lyrics_missing, with its fields."""
 
@@ -216,6 +226,11 @@ class PlayerValueIn(BaseModel):
 
 class LyricsIn(BaseModel):
     text: str = Field(min_length=1, max_length=20000)  # LRC, with [mm:ss] times, or plain text
+
+
+class PhoneticIn(BaseModel):
+    """The host's phonetic lyrics: one text for each line of the song's lyrics, in order."""
+    lines: list[str] = Field(max_length=2000)
 
 
 class ReprocessIn(BaseModel):

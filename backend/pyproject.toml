@@ -25,6 +25,11 @@ worker = [
     "openai-whisper==20250625",
     "essentia==2.1b6.dev1389",  # the newest build with Python 3.12 Linux wheels
     "lingua-language-detector",
+    # The pronunciation (pipeline/phonetic.py): Japanese readings, Chinese pinyin, other scripts
+    "fugashi",
+    "unidic-lite",
+    "pypinyin",
+    "anyascii",
     "syncedlyrics",
     "numpy",
     "soundfile",

@@ -37,6 +37,7 @@ from karaoke.core.models import (
 from karaoke.core.storage import VIDEO_ID, Manifest, SongFolder, read_json, write_json
 
 HOST = "host"  # song_events.guest_id when the host did it
+PHONETIC_PENDING = "pendente"  # phonetic_source: the automatic phonetic lyrics wait for an answer
 
 
 def record(session: Session, video_id: str, kind: str, by: str | None = None, details: dict | None = None) -> None:
@@ -226,6 +227,26 @@ def expire_rooms(session: Session) -> list[int]:
     return [room.id for room in expired]
 
 
+def answer_phonetic(session: Session, settings: Settings, song: Song, accept: bool, by: str) -> None:
+    """The answer to "usar a pronúncia automática?" (docs/ARCHITECTURE.md, "Pronúncia"), from an entry's
+    owner, the room's owner or the host. Yes: the reading the stage prepared becomes the
+    song's phonetic lyrics, in every queue. No: it is thrown away, and the song plays with the original. A new ready
+    time changes the lyrics' address, so the TVs take the new ones."""
+    if song.phonetic_source != PHONETIC_PENDING:
+        raise QueueError("Esta música não está esperando essa resposta.")
+    folder = SongFolder(settings.media_dir, song.video_id)
+    manifest = Manifest.load(folder)
+    phonetic = read_json(folder.phonetic)
+    source = "auto" if accept and phonetic else "nenhuma"
+    if source == "auto":
+        write_json(folder.phonetic, {**phonetic, "source": "auto"})
+    else:
+        folder.phonetic.unlink(missing_ok=True)
+    manifest.complete("phonetic", {**manifest.info("phonetic"), "source": source})
+    song.phonetic_source, song.ready_at = source, utcnow()
+    record(session, song.video_id, "phonetic_auto_accepted" if accept else "phonetic_auto_declined", by)
+
+
 def move_entry(session: Session, room: Room, entry: QueueEntry, index: int) -> None:
     """Put the entry at `index` (0 = first) among the room's active entries, and renumber them all. The entry that
     is playing keeps its place, and nothing goes above it."""
@@ -273,12 +294,15 @@ def skip_playing(session: Session, room: Room) -> bool:
 # --- the host's library (phase 5) ---------------------------------------------------------------------------------
 
 # The `process` job's stages, in order (karaoke.pipeline.process.default_stages), and what each one reads.
-STAGES = ("metadata", "lyrics", "download", "separation", "language", "alignment", "key", "encode")
+STAGES = (
+    "metadata", "lyrics", "download", "separation", "language", "alignment", "phonetic", "key", "encode",
+)
 NEEDS = {
     "lyrics": {"metadata"},
     "separation": {"download"},
     "language": {"lyrics"},
     "alignment": {"lyrics", "language", "separation"},
+    "phonetic": {"alignment"},
     "key": {"separation"},
     "encode": {"separation"},
 }
@@ -310,8 +334,9 @@ def reprocess(session: Session, song: Song, stages: list[str]) -> list[str]:
 
 
 def replace_lyrics(session: Session, settings: Settings, song: Song, text: str) -> None:
-    """The host pastes lyrics: LRC (with [mm:ss] times) or plain text. Only the language and the alignment run
-    again; a song that was waiting for the transcription answer goes on to download, with these lyrics."""
+    """The host pastes lyrics: LRC (with [mm:ss] times) or plain text. Only the language, the alignment and the
+    phonetic version run again; a song that was waiting for the transcription answer goes on to download, with
+    these lyrics."""
     from karaoke.pipeline.lyrics import parse_lrc
 
     if song.status in (REMOVED, PURGED):
@@ -321,7 +346,7 @@ def replace_lyrics(session: Session, settings: Settings, song: Song, text: str) 
     if not any(line["text"] for line in lines):
         raise QueueError("A letra está vazia.")
     # The job first: if one is already running, nothing on disk changes under it.
-    if not ensure_job(session, song.video_id, {"redo": ["language", "alignment"]}):
+    if not ensure_job(session, song.video_id, {"redo": ["language", "alignment", "phonetic"]}):
         raise QueueError("Esta música já está sendo processada; troque a letra quando o job terminar.")
     folder = SongFolder(settings.media_dir, song.video_id)
     write_json(folder.lyrics_source, {"source": "manual", "synced": bool(synced), "lines": lines})
@@ -339,6 +364,40 @@ def replace_lyrics(session: Session, settings: Settings, song: Song, text: str) 
             .values(status=QUEUED)
         )
     song.status, song.error, song.lyrics_source = PENDING, None, "manual"
+
+
+def replace_phonetic(session: Session, settings: Settings, song: Song, lines: list[str]) -> None:
+    """The host's phonetic lyrics (docs/ARCHITECTURE.md, "Pronúncia"), one text for each line of the
+    lyrics, kept exactly as typed: a line of the phonetic version is timed against its words as they are; a song
+    without one (or a line the fans left in the original) is paired with the original as the fans' romanization is.
+    Nothing runs again. A new ready time changes the lyrics' address, so the TVs take the new ones."""
+    from karaoke.pipeline.phonetic import from_host, letters, retime
+
+    folder = SongFolder(settings.media_dir, song.video_id)
+    manifest = Manifest.load(folder)
+    script = manifest.info("phonetic").get("script")
+    aligned = read_json(folder.aligned)
+    if song.status != READY or not script or not aligned:
+        raise QueueError("Esta música não precisa de pronúncia.")
+    if len(lines) != len(aligned["lines"]):
+        raise QueueError(f"A letra tem {len(aligned['lines'])} linhas; vieram {len(lines)}.")
+    preparing = session.scalar(
+        select(Job.id).where(Job.video_id == song.video_id, Job.status.in_((JOB_PENDING, JOB_RUNNING))).limit(1)
+    )
+    if preparing is not None:
+        raise QueueError("Esta música está sendo preparada; corrija a pronúncia quando terminar.")
+    fresh = from_host(aligned, script, lines)
+    phonetic = read_json(folder.phonetic) or {"version": 1, "script": script, "language": aligned.get("language"),
+                                              "lines": fresh}
+    phonetic["lines"] = [
+        {**line, "words": retime(line, text) or line["words"]}
+        if any(letters(w["w"]) for w in line["words"]) else new
+        for line, new, text in zip(phonetic["lines"], fresh, lines, strict=True)
+    ]
+    phonetic["source"] = "host"
+    write_json(folder.phonetic, phonetic)
+    manifest.complete("phonetic", {**manifest.info("phonetic"), "source": "host"})
+    song.phonetic_source, song.ready_at = "host", utcnow()
 
 
 def busy(session: Session, video_id: str) -> str | None:
@@ -442,6 +501,8 @@ def sync_from_manifest(song: Song, settings: Settings) -> Manifest:
     if key.get("key"):
         song.original_key = f"{key['key']} {key['scale']}"
     song.alignment_confidence = mean_confidence(folder) if manifest.done("alignment") else None
+    phonetic = manifest.info("phonetic")
+    song.phonetic_source = phonetic.get("source") if phonetic.get("script") else None
     song.pipeline_version = manifest.data.get("pipeline_version")
     return manifest
 
