@@ -1,33 +1,65 @@
 // A song that could not be prepared, after the worker tried it again by itself (docs/ARCHITECTURE.md, "Novas
 // tentativas e aviso da música que falhou"): a notice at the top of the TV, never over the lyrics, gone in 20 s or by
 // its ✕. On a TV with the host's cookie it has "Tentar de novo" (the same as the queue's "Tentar processar de novo");
-// elsewhere it says where the admin tries again, and that adding the song again tries it again too.
+// elsewhere it says where the admin tries again, and that adding the song again tries it again too. It has "Ver na
+// fila" (or "Ver em Jobs", for a song in no queue), which opens where the song is, and the phones show it too: the
+// one of whoever added the song and the host's /host.
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 
-export type Failure = { key: number; videoId: string; title: string | null };
+export type Failure = { key: number; videoId: string; title: string | null; inQueue: boolean };
 
 const NOTICE_MS = 20_000;
+export const ADMIN_HINT = "O admin pode tentar de novo no Painel, ou adicione a música de novo.";
 
-export function FailedSongs({ failures, onDismiss }: { failures: Failure[]; onDismiss: (key: number) => void }) {
+export function FailedSongs({
+  failures,
+  onDismiss,
+  onShow,
+  admin,
+  hint = ADMIN_HINT,
+  children,
+}: {
+  failures: Failure[];
+  onDismiss: (key: number) => void;
+  onShow?: (failure: Failure) => void; // opens where the song is; without it, no button
+  admin?: boolean; // "Tentar de novo" here (the TV knows it by itself, by the host's cookie)
+  hint?: string; // what the others read
+  children?: ReactNode; // other notices in the same stack (AnswerNotices)
+}) {
   const host = useQuery({ queryKey: ["tv-is-host"], queryFn: api.isHost, retry: false });
-  if (failures.length === 0) return null;
+  if (failures.length === 0 && !children) return null;
   return (
     <div className="pointer-events-none fixed top-4 left-1/2 z-40 flex w-[min(34rem,90vw)] -translate-x-1/2 flex-col gap-2">
       {failures.map((failure) => (
         <FailedSong
           key={failure.key}
           failure={failure}
-          host={host.data === true}
+          host={admin ?? host.data === true}
+          hint={hint}
           onDismiss={() => onDismiss(failure.key)}
+          onShow={onShow && (() => onShow(failure))}
         />
       ))}
+      {children}
     </div>
   );
 }
 
-function FailedSong({ failure, host, onDismiss }: { failure: Failure; host: boolean; onDismiss: () => void }) {
+function FailedSong({
+  failure,
+  host,
+  hint,
+  onDismiss,
+  onShow,
+}: {
+  failure: Failure;
+  host: boolean;
+  hint: string;
+  onDismiss: () => void;
+  onShow?: () => void;
+}) {
   const [title, setTitle] = useState(failure.title);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -67,13 +99,24 @@ function FailedSong({ failure, host, onDismiss }: { failure: Failure; host: bool
   return (
     <div
       role="status"
-      className="pointer-events-auto flex items-center gap-3 rounded-xl bg-zinc-900/95 px-4 py-3 text-left text-sm shadow-xl ring-1 ring-red-400/50"
+      className="pointer-events-auto flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl bg-zinc-900/95 px-4 py-3 text-left text-sm shadow-xl ring-1 ring-red-400/50"
     >
-      <span className="flex-1 text-zinc-100">
+      <span className="min-w-[12rem] flex-1 text-zinc-100">
         Não deu para preparar {what}.
-        {!host && " O admin pode tentar de novo no Painel, ou adicione a música de novo."}
+        {!host && ` ${hint}`}
         {problem && <span className="block text-red-300">{problem}</span>}
       </span>
+      {onShow && (
+        <button
+          className="shrink-0 rounded-lg px-3 py-1.5 font-semibold text-amber-300 ring-1 ring-amber-400/60"
+          onClick={() => {
+            onShow();
+            onDismiss();
+          }}
+        >
+          {failure.inQueue ? "Ver na fila" : "Ver em Jobs"}
+        </button>
+      )}
       {host && (
         <button
           className="shrink-0 rounded-lg bg-amber-400 px-3 py-1.5 font-bold text-zinc-950 disabled:opacity-50"

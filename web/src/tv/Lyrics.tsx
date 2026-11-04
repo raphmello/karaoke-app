@@ -10,6 +10,18 @@ const BEFORE = 1; // lines shown above the focus
 const AFTER = 2; // and below it
 const FOCUS_AT = 0.38; // where the focus line sits, as a share of the height
 const ROLL_MS = 450;
+// Japanese and Chinese words go together, without a space between them
+const CLOSE = /[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff]/;
+
+/** What goes between two words: a space, except between two of Japanese or Chinese. */
+function gap(before: string, after: string): string {
+  return CLOSE.test(before.slice(-1)) && CLOSE.test(after.slice(0, 1)) ? "" : " ";
+}
+
+/** A line's words as the TV shows them. */
+export function joined(words: { w: string }[]): string {
+  return words.map((word, i) => (i > 0 ? gap(words[i - 1].w, word.w) : "") + word.w).join("");
+}
 
 /** The line being sung: each word fills left to right as it is sung. */
 function SungLine({ line, t }: { line: Line; t: number }) {
@@ -19,7 +31,7 @@ function SungLine({ line, t }: { line: Line; t: number }) {
         const fill = wordFill(line, word, t) * 100;
         return (
           <Fragment key={i}>
-            {i > 0 ? " " : null}
+            {i > 0 ? gap(line.words[i - 1].w, word.w) : null}
             <span
               style={{
                 backgroundImage: `linear-gradient(to right, ${SUNG} ${fill}%, ${UNSUNG} ${fill}%)`,
@@ -69,7 +81,7 @@ const Row = memo(
         }}
         aria-hidden={role === "hidden"}
       >
-        {role === "sung" ? <SungLine line={line} t={t} /> : line.words.map((w) => w.w).join(" ")}
+        {role === "sung" ? <SungLine line={line} t={t} /> : joined(line.words)}
       </p>
     );
   },

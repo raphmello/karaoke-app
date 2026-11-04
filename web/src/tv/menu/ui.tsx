@@ -160,8 +160,16 @@ export function GroupLabel({ children }: { children: ReactNode }) {
   return <div className="mt-2.5 text-[11px] tracking-[0.3px] text-(--menu-text-3) uppercase">{children}</div>;
 }
 
-export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`flex flex-col gap-2 rounded-xl bg-(--menu-field) px-[14px] py-3 ${className}`}>{children}</div>;
+export function Card({
+  children,
+  className = "",
+  ...rest
+}: { children: ReactNode; className?: string; "data-song"?: string }) {
+  return (
+    <div {...rest} className={`flex flex-col gap-2 rounded-xl bg-(--menu-field) px-[14px] py-3 ${className}`}>
+      {children}
+    </div>
+  );
 }
 
 /** A song's picture, or a plain square without one (38 px; big, 48 px, in the phones' library lists). Loaded only

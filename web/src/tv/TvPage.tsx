@@ -3,7 +3,7 @@
 // address or reloaded, it asks for one tap first, since the browser plays no sound before one. Then it plays the
 // room's queue in order.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ApiError, api, onSessionLost, retryWhileRestarting, type QueueEntry, type RoomInfo } from "../api";
 import { keyLabel } from "../lib/keys";
 import { liveProgress, type Next, nextEntry, songTitle, statusText } from "../lib/queue";
@@ -11,6 +11,8 @@ import { deservesScore, pickScore } from "../lib/score";
 import { AudioEngine } from "../player/engine";
 import { ProgressBar } from "../room/ProgressBar";
 import { type Command, useRoom } from "../room/useRoom";
+import { ShowSong } from "./menu/showSong";
+import { AnswerNotices } from "./AnswerNotices";
 import { type Failure, FailedSongs } from "./FailedSongs";
 import { useCompact } from "./compact";
 import { CornerCard } from "./CornerCard";
@@ -306,7 +308,7 @@ function TvQueue({
     send.current({ type: "player.state", entry_id: null, position: 0, paused: true, semitones: 0 });
   }, []);
 
-  // The score at the end of a song (from 0.19.0): sung to the end, or skipped after half of it; the next song's
+  // The score at the end of a song (docs/ARCHITECTURE.md, "Nota no fim da música"): sung to the end, or skipped after half of it; the next song's
   // countdown waits until it closes. A song removed from the queue gets none.
   const [scoring, setScoring] = useState<{ entry: QueueEntry; score: number } | null>(null);
   const heard = useRef(0); // how far the song playing now went, from the player's reports
@@ -331,12 +333,14 @@ function TvQueue({
   const [failures, setFailures] = useState<Failure[]>([]);
   const queued = useRef<QueueEntry[] | null>(null);
   const dismissFailure = useCallback((key: number) => setFailures((all) => all.filter((f) => f.key !== key)), []);
+  const showSong = useContext(ShowSong); // the admin's menu, where this TV has it
+  const isHost = useQuery({ queryKey: ["tv-is-host"], queryFn: api.isHost, retry: false }).data === true;
 
   const live = useRoom(room.code, {
     tv: true,
     onSongFailed: (videoId) => {
       const entry = queued.current?.find((e) => e.video_id === videoId);
-      const failure = { key: Date.now(), videoId, title: entry ? songTitle(entry.song) : null };
+      const failure = { key: Date.now(), videoId, title: entry ? songTitle(entry.song) : null, inQueue: !!entry };
       setFailures((all) => [...all.filter((f) => f.videoId !== videoId), failure]);
     },
     onCommand: (command) => {
@@ -348,7 +352,20 @@ function TvQueue({
   });
   send.current = live.send;
   queued.current = live.entries;
-  const notices = <FailedSongs failures={failures} onDismiss={dismissFailure} />;
+  const notices = (
+    <FailedSongs
+      failures={failures}
+      onDismiss={dismissFailure}
+      onShow={showSong ? (failure) => showSong(failure.videoId, failure.inQueue ? "fila" : "jobs") : undefined}
+    >
+      {showSong && <AnswerNotices
+          entries={live.entries}
+          admin={isHost || room.manage}
+          host={isHost}
+          onShow={(videoId, inQueue) => showSong(videoId, inQueue ? "fila" : "acervo")}
+        />}
+    </FailedSongs>
+  );
 
   // The socket closed because the session or the room is gone: check again (a 401 brings back the PIN).
   const queryClient = useQueryClient();
@@ -469,7 +486,13 @@ function TvQueue({
       ) : (
         <>
           <p className="text-3xl font-bold">Leia o QR Code e escolha uma música</p>
-          <p className="text-xl text-zinc-400">A fila está vazia. A primeira música começa assim que ficar pronta.</p>
+          <p className="text-xl text-zinc-400">
+            {live.entries?.some(
+              (e) => e.status === "awaiting_decision" || (e.status === "queued" && e.song.phonetic_source === "pendente"),
+            )
+              ? "A fila tem música esperando uma resposta sobre a letra; ela toca depois que quem a adicionou ou o admin responder."
+              : "A fila está vazia. A primeira música começa assim que ficar pronta."}
+          </p>
         </>
       )}
       <JoinQr room={room} size={260} />

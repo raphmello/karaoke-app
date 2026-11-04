@@ -1,4 +1,4 @@
-// The score at the end of a song (docs/ARCHITECTURE.md, phase 6, "Nota no fim da música", from 0.19.0): a random
+// The score at the end of a song: a random
 // number from 70 to 100, only for fun. The app does not judge the singing and never says it does.
 
 export const MIN_SCORE = 70;

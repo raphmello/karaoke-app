@@ -1,9 +1,8 @@
-// The library's pieces for Painel → Acervo (tv/menu/PainelPanel.tsx): change the lyrics, reprocess stages and see a
-// song's history.
+// The library's pieces for Painel → Acervo (tv/menu/PainelPanel.tsx): change the lyrics and see a song's history (the
+// Reprocessar choices are in tv/menu/Reprocess.tsx).
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
-import { STAGE_NAMES } from "../lib/queue";
 
 /** "55 MB": what a song's files take, said for people. */
 export function megabytes(bytes: number | null | undefined): string {
@@ -31,35 +30,13 @@ export function LyricsForm({ onSubmit }: { onSubmit: (text: string) => void }) {
   );
 }
 
-export function ReprocessForm({ onSubmit }: { onSubmit: (stages: string[]) => void }) {
-  const [stages, setStages] = useState<string[]>([]);
-  return (
-    <div className="mt-3 flex flex-col gap-2">
-      <p className="text-sm text-zinc-400">Escolha as etapas. As que dependem delas também rodam de novo.</p>
-      <div className="flex flex-wrap gap-x-4 gap-y-2">
-        {Object.entries(STAGE_NAMES).map(([stage, name]) => (
-          <label key={stage} className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={stages.includes(stage)}
-              onChange={(event) => setStages((s) => (event.target.checked ? [...s, stage] : s.filter((x) => x !== stage)))}
-            />
-            {name}
-          </label>
-        ))}
-      </div>
-      <button className="self-start rounded-lg bg-amber-400 px-4 py-2 font-bold text-zinc-950 disabled:opacity-50" disabled={stages.length === 0} onClick={() => onSubmit(stages)}>
-        Reprocessar
-      </button>
-    </div>
-  );
-}
-
 const EVENTS: Record<string, string> = {
   created: "Adicionada",
   lyrics_missing: "Letra não encontrada",
   transcription_accepted: "Transcrição aceita",
   transcription_declined: "Transcrição recusada",
+  phonetic_auto_accepted: "Pronúncia automática aceita",
+  phonetic_auto_declined: "Pronúncia automática recusada",
   ready: "Pronta",
   removed: "Removida",
   reactivated: "Reativada",

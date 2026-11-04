@@ -18,8 +18,11 @@ import { PreviewBar, previewSources, usePreview } from "../../room/Preview";
 import { ProgressBar } from "../../room/ProgressBar";
 import type { PlayerState, useRoom } from "../../room/useRoom";
 import { DELAY_LIMIT_MS, DELAY_STEP_MS, seconds } from "../controls/FloatingBar";
+import { hasPhonetic } from "../phonetic";
 import { formatTime } from "../time";
 import { Icon } from "./icons";
+import { ReprocessForm } from "./Reprocess";
+import { ShowSong } from "./showSong";
 import { ArtistGroups, LibraryScroll, Touch } from "./SongList";
 import { Body, button, IconButton, Label, PanelHeader, primary, RoundButton, Tabs, Thumb, useToast } from "./ui";
 
@@ -37,6 +40,7 @@ export function SalaPanel({
   actions,
   onDeleted,
   closed,
+  focus = null,
 }: {
   room: RoomInfo | null;
   live: Live;
@@ -49,6 +53,7 @@ export function SalaPanel({
   actions?: ReactNode; // under the room's details ("Abrir como TV", "Ver salas")
   onDeleted?: () => void; // the room was deleted from here
   closed?: boolean; // the room was deleted or expired: only a notice
+  focus?: string | null; // a song to bring into view in the queue, marked (a notice's "Ver na fila")
 }) {
   const code = room?.code ?? null;
   const waiting = live.entries?.filter((entry) => entry.status !== "playing").length ?? 0;
@@ -95,7 +100,7 @@ export function SalaPanel({
             onChange={onTab}
           />
           {tab === "fila" ? (
-            <Fila code={room.code} live={live} manage={manage} controls={controls} onAdd={() => onTab("adicionar")} />
+            <Fila code={room.code} live={live} manage={manage} controls={controls} focus={focus} onAdd={() => onTab("adicionar")} />
           ) : (
             <Adicionar code={room.code} />
           )}
@@ -112,12 +117,14 @@ function Fila({
   live,
   manage: host,
   controls,
+  focus,
   onAdd,
 }: {
   code: string;
   live: Live;
   manage: boolean;
   controls: boolean;
+  focus: string | null;
   onAdd: () => void;
 }) {
   const toast = useToast();
@@ -129,6 +136,15 @@ function Fila({
   // drop, which phones and some embedded browsers do not deliver)
   const [drag, setDrag] = useState<{ id: number; over: number } | null>(null);
   const list = useRef<HTMLOListElement>(null);
+  // The song a failure's notice pointed at, in view
+  const ready = !!entries;
+  useEffect(() => {
+    if (!focus || !ready) return;
+    list.current?.querySelector(`[data-song="${CSS.escape(focus)}"]`)?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [focus, ready]);
+  // The failed song whose Reprocessar is open; once sent, Jobs shows it (where the admin's menu can)
+  const [reprocessing, setReprocessing] = useState<number | null>(null);
+  const showSong = useContext(ShowSong);
   useEffect(() => {
     if (!entries) return;
     setPending((current) => {
@@ -139,14 +155,16 @@ function Fila({
 
   if (!entries) return <Body><p className="py-2 text-[12px] text-(--menu-text-3)">Carregando a fila…</p></Body>;
 
-  const run = async (entryId: number, action: () => Promise<unknown>, done?: string) => {
+  const run = async (entryId: number, action: () => Promise<unknown>, done?: string): Promise<boolean> => {
     setErrors(({ [entryId]: _, ...rest }) => rest);
     try {
       await action();
       if (done) toast(done);
+      return true;
     } catch (e) {
       setErrors((current) => ({ ...current, [entryId]: (e as Error).message }));
       window.setTimeout(() => setErrors(({ [entryId]: _, ...rest }) => rest), 6000);
+      return false;
     }
   };
   const playing = entries.find((entry) => entry.status === "playing");
@@ -187,7 +205,12 @@ function Fila({
             <Thumb src={playing.song.thumbnail_url} />
             <SongText
               title={songTitle(playing.song)}
-              sub={[playing.song.artist, who(playing), keyLabel(playing.song.original_key, keyOf(playing)).current]}
+              sub={[
+                playing.song.artist,
+                who(playing),
+                keyLabel(playing.song.original_key, keyOf(playing)).current,
+                phoneticNote(playing.song),
+              ]}
             />
             {!controls && (
               <span className="flex text-(--menu-accent)">
@@ -241,7 +264,10 @@ function Fila({
               <li
                 key={entry.id}
                 data-entry={entry.id}
-                className={`border-b border-(--menu-line) py-1.5 last:border-b-0 ${drag?.id === entry.id ? "opacity-40" : ""} ${
+                data-song={entry.video_id}
+                className={`border-b border-(--menu-line) py-1.5 last:border-b-0 ${
+                  focus === entry.video_id ? "-mx-1.5 rounded-[10px] bg-(--menu-accent-soft) px-1.5 ring-1 ring-(--menu-accent)" : ""
+                } ${drag?.id === entry.id ? "opacity-40" : ""} ${
                   drag && drag.over === entry.id && drag.over !== drag.id
                     ? indexOf(drag.id) > indexOf(entry.id)
                       ? "shadow-[inset_0_2px_0_var(--menu-accent)]"
@@ -275,7 +301,12 @@ function Fila({
                   <Thumb src={entry.song.thumbnail_url} />
                   <SongText
                     title={songTitle(entry.song)}
-                    sub={[entry.song.artist, who(entry), keyLabel(entry.song.original_key, semitones).current]}
+                    sub={[
+                      entry.song.artist,
+                      who(entry),
+                      keyLabel(entry.song.original_key, semitones).current,
+                      entry.song.status === "ready" && phoneticNote(entry.song),
+                    ]}
                   />
                   {mayEdit(entry) && (
                     <IconButton
@@ -308,17 +339,61 @@ function Fila({
                       </button>
                     </>
                   ) : (
-                    <KeyStepper semitones={semitones} onChange={setKey} />
+                    <>
+                      {entry.song.status === "ready" && entry.song.phonetic_source === "pendente" && (
+                        <div className="flex w-full flex-wrap items-center gap-2">
+                          <p className="w-full text-[12px] text-(--menu-text-2)">
+                            Não encontramos a pronúncia dos fãs para esta música. Usar a pronúncia automática? Ela pode ter
+                            erros.
+                          </p>
+                          <button
+                            className={primary}
+                            onClick={() => void run(entry.id, () => api.answerPhonetic(code, entry.id, true), "Pronúncia automática ligada")}
+                          >
+                            Usar automática
+                          </button>
+                          <button
+                            className={button}
+                            onClick={() => void run(entry.id, () => api.answerPhonetic(code, entry.id, false), "Fica só a letra original")}
+                          >
+                            Não, só a original
+                          </button>
+                        </div>
+                      )}
+                      <KeyStepper semitones={semitones} onChange={setKey} />
+                    </>
                   )}
                   {host && entry.song.status === "failed" && (
-                    <button
-                      className={button}
-                      onClick={() => void run(entry.id, () => api.reprocess(entry.video_id, []), "Vai tentar de novo")}
-                    >
-                      Tentar de novo
-                    </button>
+                    <>
+                      <button
+                        className={button}
+                        onClick={() => void run(entry.id, () => api.reprocess(entry.video_id, []), "Vai tentar de novo")}
+                      >
+                        Tentar de novo
+                      </button>
+                      <button
+                        className={button}
+                        aria-expanded={reprocessing === entry.id}
+                        onClick={() => setReprocessing(reprocessing === entry.id ? null : entry.id)}
+                      >
+                        Reprocessar…
+                      </button>
+                    </>
                   )}
                 </div>
+                )}
+                {host && entry.song.status === "failed" && reprocessing === entry.id && (
+                  <div>
+                    <ReprocessForm
+                      onSubmit={(stages) => {
+                        setReprocessing(null);
+                        void run(entry.id, () => api.reprocess(entry.video_id, stages), `“${songTitle(entry.song)}” vai ser reprocessada`).then(
+                          (sent) => sent && showSong?.(entry.video_id, "jobs"),
+                        );
+                      }}
+                      onCancel={() => setReprocessing(null)}
+                    />
+                  </div>
                 )}
                 {errors[entry.id] && (
                   <p role="alert" className={`mt-1.5 ${indent} text-[12px] text-(--menu-err)`}>
@@ -491,7 +566,15 @@ function PlayerControls({
 const step =
   "flex h-7 w-[34px] items-center justify-center rounded-[14px] text-[13px] text-[#e4e4e8] hover:bg-(--menu-btn-hover) disabled:opacity-40";
 
-function SongText({ title, sub }: { title: string; sub: (string | null | undefined)[] }) {
+/** "letra com pronúncia", "pronúncia automática: aguardando resposta" or "sem pronúncia", for a song whose lyrics
+ *  need one; nothing for the rest. */
+function phoneticNote(song: QueueEntry["song"]): string | null {
+  if (hasPhonetic(song)) return "letra com pronúncia";
+  if (song.phonetic_source === "pendente") return "pronúncia automática: aguardando resposta";
+  return song.phonetic_source === "nenhuma" ? "sem pronúncia" : null;
+}
+
+function SongText({ title, sub }: { title: string; sub: (string | false | null | undefined)[] }) {
   return (
     <div className="min-w-0 flex-1">
       <div className="truncate font-medium">{title}</div>
@@ -501,6 +584,9 @@ function SongText({ title, sub }: { title: string; sub: (string | null | undefin
 }
 
 // --- Adicionar ------------------------------------------------------------------------------------------------------
+// From the library by artist (docs/specs/02-scrollbar-lista-musicas): with nothing typed, the whole library by artist with the A–Z
+// index; typing, the library's matches as a flat list and YouTube's below. On the phones, Adicionar opens a sheet
+// from the bottom instead of the card in the list.
 
 const YOUTUBE_SHOWN = 3;
 const DEBOUNCE_MS = 400;
@@ -539,6 +625,7 @@ function Adicionar({ code }: { code: string }) {
       sub={[
         q ? artistOf(song) : null, // grouped, the artist is in the header
         song.duration_s ? formatTime(song.duration_s) : null,
+        song.status !== "ready" ? "em processamento: entra na fila e toca quando ficar pronta" : null,
       ]}
       picked={picked === song.video_id}
       onPick={() => pick(song.video_id)}

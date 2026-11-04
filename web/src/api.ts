@@ -15,8 +15,18 @@ export type Song = {
   language: string | null;
   lyrics_source: string | null;
   alignment_confidence: number | null;
+  // The phonetic lyrics (docs/ARCHITECTURE.md, "Pronúncia"): lrclib (the fans') or host; nenhuma when
+  // the lyrics need them and none was found; null for lyrics in Latin letters
+  phonetic_source: "lrclib" | "auto" | "host" | "pendente" | "nenhuma" | null; // pendente: the automatic waits for an answer
   error: string | null;
-  media: { instrumental: string; vocals: string; lyrics: string; thumb: string; original: string | null } | null;
+  media: {
+    instrumental: string;
+    vocals: string;
+    lyrics: string;
+    thumb: string;
+    original: string | null;
+    phonetic?: string | null; // the phonetic lyrics, line for line with `lyrics`
+  } | null;
   disk_bytes?: number | null; // in the removed list: what "Apagar de vez" frees
 };
 
@@ -155,12 +165,20 @@ export const api = {
   remove: (code: string, id: number) => request<void>(`${room(code)}/queue/${id}`, send("DELETE")),
   answer: (code: string, id: number, accept: boolean) =>
     request<void>(`${room(code)}/queue/${id}/transcription`, send("POST", { accept })),
+  answerPhonetic: (code: string, id: number, accept: boolean) =>
+    request<void>(`${room(code)}/queue/${id}/phonetic`, send("POST", { accept })),
   player: (code: string, action: "play" | "pause" | "skip") =>
     request<void>(`${room(code)}/player/${action}`, send("POST")),
   playerValue: (code: string, action: "guide" | "delay", value: number) =>
     request<void>(`${room(code)}/player/${action}`, send("POST", { value })),
   library: (q: string) => request<Song[]>(`/api/library?q=${encodeURIComponent(q)}`),
   replaceLyrics: (videoId: string, text: string) => request<void>(`${song(videoId)}/lyrics`, send("PUT", { text })),
+  // The host's phonetic lyrics: one text for each line
+  replacePhonetic: (videoId: string, lines: string[]) =>
+    request<void>(`${song(videoId)}/phonetic`, send("PUT", { lines })),
+  // The host's answer to "usar a pronúncia automática?", from the library
+  answerPhoneticSong: (videoId: string, accept: boolean) =>
+    request<void>(`${song(videoId)}/phonetic/auto`, send("POST", { accept })),
   reprocess: (videoId: string, stages: string[]) =>
     request<{ stages: string[] }>(`${song(videoId)}/reprocess`, send("POST", { stages })),
   // Out of the library for good: its files leave the disk; added again, it is prepared from scratch

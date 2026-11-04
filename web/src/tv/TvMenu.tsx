@@ -8,24 +8,35 @@
 // right there. "Sair do admin" drops the host's cookie and locks it again. "Ver salas" leaves this room's TV for the
 // list of rooms.
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { api, type RoomInfo } from "../api";
 import { useRoom } from "../room/useRoom";
 import { CompactContext, NARROW_PX, SHORT_PX, useCompact } from "./compact";
 import { Icon, type IconName } from "./menu/icons";
 import { PainelPanel, type PainelTab } from "./menu/PainelPanel";
 import { SalaPanel, type SalaTab } from "./menu/SalaPanel";
+import { ShowSong, type SongPlace } from "./menu/showSong";
 import { Body, Card, input, PanelHeader, primary, WithToast } from "./menu/ui";
 
 type View = "sala" | "painel";
-/** Where the menu was, so it opens again there: the item, and the tab of Sala and of Painel. */
-type MenuState = { view: View; sala: SalaTab; painel: PainelTab };
+/** Where the menu was, so it opens again there: the item, and the tab of Sala and of Painel. `focus` is the song a
+ *  notice pointed at ("Ver na fila"), marked until the menu moves elsewhere. */
+type MenuState = { view: View; sala: SalaTab; painel: PainelTab; focus: string | null };
 
 /** The TV (`children`) and, beside it, its menu. */
 export function TvMenuLayout({ room, closed, children }: { room: RoomInfo; closed: boolean; children: ReactNode }) {
   const phone = useCompact(); // the window's size: outside the TV's box
   const [open, setOpen] = useState(false);
-  const [menu, setMenu] = useState<MenuState>({ view: "sala", sala: "fila", painel: "disco" });
+  const [menu, setMenu] = useState<MenuState>({ view: "sala", sala: "fila", painel: "disco", focus: null });
+  // A notice's "Ver na fila" (or "Ver em Jobs"): the menu opens at the song
+  const showSong = useCallback((videoId: string, where: SongPlace) => {
+    setMenu((current) =>
+      where === "fila"
+        ? { ...current, view: "sala", sala: "fila", focus: videoId }
+        : { ...current, view: "painel", painel: where, focus: videoId },
+    );
+    setOpen(true);
+  }, []);
   const queryClient = useQueryClient();
   const host = useQuery({ queryKey: ["tv-is-host"], queryFn: api.isHost, retry: false });
   const isHost = host.data === true;
@@ -61,6 +72,7 @@ export function TvMenuLayout({ room, closed, children }: { room: RoomInfo; close
 
   const tvHidden = open && phone;
   return (
+    <ShowSong.Provider value={showSong}>
     <WithToast>
       {(toast) => (
         <div className="flex h-full">
@@ -99,6 +111,7 @@ export function TvMenuLayout({ room, closed, children }: { room: RoomInfo; close
         </div>
       )}
     </WithToast>
+    </ShowSong.Provider>
   );
 }
 
@@ -123,7 +136,7 @@ function SideMenu({
 }) {
   const live = useRoom(closed ? null : room.code);
   const waiting = live.entries?.filter((entry) => entry.status !== "playing").length ?? 0;
-  const go = (view: View) => onState({ ...state, view });
+  const go = (view: View) => onState({ ...state, view, focus: null });
 
   return (
     <div
@@ -147,13 +160,19 @@ function SideMenu({
             room={room}
             live={live}
             tab={state.sala}
-            onTab={(sala) => onState({ ...state, sala })}
+            onTab={(sala) => onState({ ...state, sala, focus: null })}
             onClose={onClose}
             manage={isHost || room.manage}
             closed={closed}
+            focus={state.focus}
           />
         ) : isHost ? (
-          <PainelPanel tab={state.painel} onTab={(painel) => onState({ ...state, painel })} onClose={onClose} />
+          <PainelPanel
+            tab={state.painel}
+            onTab={(painel) => onState({ ...state, painel, focus: null })}
+            onClose={onClose}
+            focus={state.focus}
+          />
         ) : (
           <AdminUnlock onClose={onClose} />
         )}
