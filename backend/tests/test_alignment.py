@@ -13,6 +13,7 @@ from karaoke.pipeline.alignment import (
     fit_line,
     move_silent_lines,
     skeleton,
+    spread_squeezed,
     uniform_words,
     voiced_frames,
 )
@@ -120,3 +121,57 @@ def test_a_good_whisper_fit_stays():
     voiced = voiced_frames(voice_at(STAMPS, shift=0.5))
     slope, intercept, info = check_fit(STAMPS, 1.002, 0.45, voiced)
     assert (slope, intercept, info["mapping"]) == (1.002, 0.45, "whisper")
+
+
+def test_on_an_lrc_as_long_as_the_video_a_drift_the_voice_does_not_need_gives_way():
+    # Gangnam Style in small: singing with no pause, so a drifting fit covers the voice almost as well
+    audio = np.zeros(int(70 * SAMPLE_RATE), dtype=np.float32)
+    audio[20 * SAMPLE_RATE: 52 * SAMPLE_RATE] = 0.3 * np.sin(np.arange(32 * SAMPLE_RATE) / 10)
+    voiced = voiced_frames(audio)
+    assert check_fit(STAMPS, 0.96, 1.0, voiced)[2]["mapping"] == "whisper"
+    slope, intercept, info = check_fit(STAMPS, 0.96, 1.0, voiced, same_length=True)
+    assert (slope, info["mapping"]) == (1.0, "length") and intercept == pytest.approx(0.0, abs=0.6)
+    # a drift within MAX_DRIFT stays, as long as the lengths match
+    assert check_fit(STAMPS, 1.002, 0.45, voiced, same_length=True)[2]["mapping"] == "whisper"
+
+
+def test_lines_squeezed_into_an_instant_are_spread_between_their_neighbours():
+    def line(start, end, words):
+        return {"start": start, "end": end, "low_confidence": False,
+                "words": [{"w": w, "s": s, "e": e, "c": 0.9} for w, s, e in words]}
+
+    lines = [line(10.0, 12.0, [("um", 10.0, 11.0), ("dois", 11.0, 12.0)]),
+             line(12.0, 12.0, [("tres", 12.0, 12.0), ("quatro", 12.0, 12.0)]),
+             line(12.0, 12.01, [("cinco", 12.0, 12.0), ("seis", 12.0, 12.01)]),
+             line(20.0, 22.0, [("sete", 20.0, 21.0), ("oito", 21.0, 22.0)])]
+    assert spread_squeezed(lines) == 2
+    assert [line["low_confidence"] for line in lines] == [False, True, True, False]
+    assert lines[1]["start"] == 12.0 and lines[2]["end"] == 20.0
+    words = [w for line in lines[1:3] for w in line["words"]]
+    assert all(w["e"] - w["s"] > 0.1 for w in words)
+    assert all(a["e"] <= b["s"] + 1e-6 for a, b in pairwise(words))
+    assert lines[0]["words"][0]["s"] == 10.0 and lines[3]["words"][0]["s"] == 20.0  # the others stay
+
+
+def test_lines_take_the_whole_song_window_only_when_surer_and_in_order():
+    from karaoke.pipeline.alignment import in_order
+
+    def w(start):
+        return {"start": start, "end": start + 2}
+
+    def sure(c):
+        return [{"w": "a", "s": 0, "e": 1, "c": c}]
+
+    lrc = [w(10), w(12), w(14)]
+    whole = [w(13), w(11)]
+    options = [
+        [(lrc[0], sure(0.1)), (whole[0], sure(0.9))],  # much surer at 13 s
+        [(lrc[1], sure(0.2)), (whole[1], sure(0.95))],  # surer at 11 s, but that would come before line 0's 13 s
+        [(lrc[2], sure(0.8))],
+    ]
+    picked = in_order(options)
+    starts = [window["start"] for window, _ in picked]
+    assert starts == sorted(starts)
+    assert picked[2][0] is lrc[2]
+    # a whole-song window barely surer than the LRC's stays out
+    assert in_order([[(lrc[0], sure(0.5)), (whole[0], sure(0.55))]])[0][0] is lrc[0]

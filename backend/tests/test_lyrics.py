@@ -5,9 +5,11 @@ from karaoke.pipeline import lyrics as lyrics_module
 from karaoke.pipeline.lyrics import (
     artist_and_track,
     choose,
+    clean_name,
     fits_video,
     guess_artist_track,
     match_lyrics,
+    names_of,
     parse_lrc,
     same_name,
 )
@@ -35,6 +37,21 @@ def test_artist_and_track_from_a_noisy_title():
 
 def test_a_track_named_like_noise_is_kept():
     assert guess_artist_track({"title": "Oasis - Live Forever", "channel": "Oasis"}) == ("Oasis", "Live Forever")
+
+
+def test_a_dash_against_the_artist_still_splits_but_a_hyphenated_name_does_not():
+    assert guess_artist_track({"title": "Miki Matsubara- Mayonaka No Door", "channel": "Hits"}) == (
+        "Miki Matsubara", "Mayonaka No Door")
+    assert guess_artist_track({"title": "Jay-Z - Empire State of Mind", "channel": "Hits"}) == (
+        "Jay-Z", "Empire State of Mind")
+
+
+def test_a_video_s_name_is_cleaned_and_split_for_the_search():
+    assert names_of("真夜中のドア / Stay with me [Tradução em PT-BR].") == [
+        "真夜中のドア / Stay with me", "真夜中のドア", "Stay with me"]
+    assert names_of("Stay With Me HD (Club Mix)") == ["Stay With Me"]
+    assert names_of("Sukiyaki (Ue o Muite Arukou)") == ["Sukiyaki", "Ue o Muite Arukou"]
+    assert clean_name("GANGNAM STYLE(강남스타일) M/V") == "GANGNAM STYLE"
 
 
 def test_artist_from_the_channel_when_the_title_has_no_dash():
@@ -147,3 +164,52 @@ def test_not_found_is_an_answer_not_an_outage(monkeypatch):
     calls = answering(monkeypatch, 404)
     assert lyrics_module.lrclib_get("Artista", "Música", 200) is None
     assert len(calls) == 1
+
+
+def test_a_karaoke_video_s_title_loses_what_karaoke_channels_add():
+    meta = {"title": "Karaoke\u266c Mayonaka no Door / Stay With Me - Miki Matsubara \u3010No Guide Melody\u3011 "
+                     "Lyric Romanized | EdKara", "channel": "EdKara"}
+    assert guess_artist_track(meta) == ("Mayonaka no Door / Stay With Me", "Miki Matsubara")
+
+
+def test_the_search_tries_the_artist_and_track_swapped(monkeypatch):
+    asked = []
+
+    def get(artist, track, duration):
+        asked.append((artist, track))
+        return ({"source": "lrclib", "id": 1, "artist": "Miki Matsubara", "track": "Mayonaka no Door",
+                 "duration": 300.0, "synced": True, "lines": [{"t": 1.0, "text": "a"}]}
+                if artist == "Miki Matsubara" else None)
+
+    monkeypatch.setattr(lyrics_module, "lrclib_get", get)
+    monkeypatch.setattr(lyrics_module, "lrclib_search", lambda query: [])
+    found = lyrics_module.find({"title": "Mayonaka no Door - Miki Matsubara", "channel": "Canal", "duration_s": 300})
+    assert found["id"] == 1 and asked[-1] == ("Miki Matsubara", "Mayonaka no Door")
+
+
+def sung(*texts: str, duration: float = 200) -> dict:
+    return {"synced": True, "duration": duration, "lines": [{"t": n * 5.0, "text": t} for n, t in enumerate(texts)]}
+
+
+PT = ["eu vou cantar a noite inteira", "você não sabe o que eu sinto", "a estrada é longa demais",
+      "quando a saudade bater de novo"]
+
+
+def test_choose_skips_lyrics_that_mix_in_versions_in_other_languages():
+    mixed = sung(*PT[:2], "si otro hombre apareciera por tu ruta", "lo so che un altro parla sussurrando",
+                 "I know that things may disappear", duration=200)
+    clean = sung(*PT, duration=201)
+    assert choose([mixed, clean], 200) is clean
+    assert choose([mixed], 200) is mixed  # alone, they are still the best there is
+    # a song sung in two languages keeps its lyrics: no candidate in the same language has fewer lines in another
+    assert choose([mixed, sung("I know that things may disappear", "as time goes by in our hearts")], 200) is mixed
+
+
+def test_mixed_lyrics_from_the_exact_lookup_are_compared_with_the_search(monkeypatch):
+    mixed = {**sung(*PT[:2], "si otro hombre apareciera por tu ruta", "lo so che un altro parla sussurrando",
+                    "I know that things may disappear", duration=305), "id": 1}
+    clean = {**sung(*PT, duration=304), "id": 2}
+    monkeypatch.setattr(lyrics_module, "lrclib_get", lambda artist, track, duration: dict(mixed))
+    monkeypatch.setattr(lyrics_module, "lrclib_search", lambda query: [dict(mixed), dict(clean)])
+    found = lyrics_module.find({"title": "Roberto Carlos - Detalhes", "channel": "Canal", "duration_s": 305})
+    assert found["id"] == 2 and "_languages" not in found
