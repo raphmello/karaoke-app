@@ -2,13 +2,15 @@
 // removed the old way), Jobs (in progress, waiting and the history, with "Tentar de novo" for a failure) and Acervo
 // (the old Gerenciar Acervo: Trocar letra, Reprocessar, Histórico and Remover).
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { api, type Job, type Song } from "../../api";
 import { History, LyricsForm, megabytes, ReprocessForm } from "../../host/LibraryAdmin";
 import { PurgeRemoved } from "../../host/Panel";
+import { artistOf, byArtist, inOrder } from "../../lib/library";
 import { STAGE_NAMES, songTitle } from "../../lib/queue";
 import { formatTime } from "../time";
 import { Icon } from "./icons";
+import { ArtistGroups, LibraryScroll, Touch } from "./SongList";
 import { Body, button, Card, gb, Label, PanelHeader, RoundButton, Tabs, Thumb, useToast } from "./ui";
 
 export type PainelTab = "disco" | "jobs" | "acervo";
@@ -195,32 +197,55 @@ function Jobs() {
 function Acervo() {
   const [q, setQ] = useState("");
   const songs = useQuery({ queryKey: ["library", q], queryFn: () => api.library(q), placeholderData: (previous) => previous });
-  const count = songs.data?.length ?? 0;
+  const touch = useContext(Touch);
+  const list = songs.data ?? [];
+  const count = list.length;
+  const filtering = !!q.trim();
+  // From the list by artist (docs/specs/02-scrollbar-lista-musicas): by artist with the A–Z index; filtered, a flat list
+  const groups = filtering ? null : byArtist(list);
+  const row = (song: Song) => <AcervoRow key={song.video_id} song={song} withArtist={filtering} />;
   return (
-    <Body>
-      <label className="flex items-center gap-2 rounded-[10px] border border-transparent bg-(--menu-field) px-3 py-2 focus-within:border-(--menu-accent)">
-        <Icon name="search" className="h-[17px] w-[17px] text-(--menu-text-3)" />
-        <input
-          className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-(--menu-text-off)"
-          placeholder="Filtrar o acervo"
-          aria-label="Filtrar o acervo"
-          autoComplete="off"
-          value={q}
-          onChange={(event) => setQ(event.target.value)}
-        />
-      </label>
-      <Label>
-        {count} música{count === 1 ? "" : "s"}
-      </Label>
-      {songs.isError && <p className="text-[12px] text-(--menu-err)">{songs.error.message}</p>}
-      {songs.data?.map((song) => <AcervoRow key={song.video_id} song={song} />)}
-    </Body>
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* opaque and above the list (LibraryScroll), with the space under the field: on an iPhone, rows showed
+          through between the field and the artist's sticky header */}
+      <div className="relative z-20 bg-(--menu-panel) px-[14px] pt-3 pb-2">
+        <label
+          className={`flex items-center gap-2 rounded-[10px] border border-transparent bg-(--menu-field) focus-within:border-(--menu-accent) ${
+            touch ? "px-3.5 py-2.5" : "px-3 py-2"
+          }`}
+        >
+          <Icon name="search" className="h-[17px] w-[17px] text-(--menu-text-3)" />
+          <input
+            className={`min-w-0 flex-1 bg-transparent outline-none placeholder:text-(--menu-text-off) ${touch ? "text-[16px]" : ""}`}
+            placeholder="Filtrar o acervo"
+            aria-label="Filtrar o acervo"
+            autoComplete="off"
+            value={q}
+            onChange={(event) => setQ(event.target.value)}
+          />
+        </label>
+      </div>
+      <LibraryScroll groups={groups && groups.length ? groups : null}>
+        <Label first>
+          <Icon name="books" className="h-3.5 w-3.5" />
+          {filtering ? `${count} resultado${count === 1 ? "" : "s"}` : `${count} música${count === 1 ? "" : "s"}`}
+        </Label>
+        {songs.isError && <p className="text-[12px] text-(--menu-err)">{songs.error.message}</p>}
+        {songs.data?.length === 0 && (
+          <p className="px-0.5 py-1 text-[12px] text-(--menu-text-3)">
+            {filtering ? "Nenhuma música encontrada." : "O acervo ainda está vazio."}
+          </p>
+        )}
+        {groups ? <ArtistGroups groups={groups} row={row} /> : inOrder(list).map(row)}
+      </LibraryScroll>
+    </div>
   );
 }
 
 type Open = "lyrics" | "reprocess" | "history" | "remove" | null;
 
-function AcervoRow({ song }: { song: Song }) {
+function AcervoRow({ song, withArtist }: { song: Song; withArtist: boolean }) {
+  const touch = useContext(Touch);
   const toast = useToast();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState<Open>(null);
@@ -240,22 +265,29 @@ function AcervoRow({ song }: { song: Song }) {
     }
   };
   const title = songTitle(song);
+  const actions = (
+    <>
+      <RoundButton icon="lyrics" label={`Trocar letra de “${title}”`} active={open === "lyrics"} big={touch} onClick={() => toggle("lyrics")} />
+      <RoundButton icon="refresh" label={`Reprocessar “${title}”`} active={open === "reprocess"} big={touch} onClick={() => toggle("reprocess")} />
+      <RoundButton icon="clock" label={`Histórico de “${title}”`} active={open === "history"} big={touch} onClick={() => toggle("history")} />
+      <RoundButton icon="trash" label={`Remover “${title}”`} danger big={touch} onClick={() => toggle("remove")} />
+    </>
+  );
 
   return (
-    <div className="border-b border-(--menu-line) py-1.5 last:border-b-0">
-      <div className="flex items-center gap-2.5">
-        <Thumb src={song.thumbnail_url} />
+    <div className="py-1.5">
+      <div className={`flex items-center ${touch ? "gap-2" : "gap-2.5"}`}>
+        <Thumb src={song.thumbnail_url} big={touch} />
         <div className="min-w-0 flex-1">
-          <div className="truncate font-medium">{title}</div>
-          <div className="truncate text-[11px] text-(--menu-text-3)">
-            {[song.artist ?? song.channel, song.duration_s ? formatTime(song.duration_s) : null, "pronta"].filter(Boolean).join(" · ")}
+          <div className={`truncate font-medium ${touch ? "text-[15px]" : ""}`}>{title}</div>
+          <div className={`truncate text-(--menu-text-3) ${touch ? "text-[12px]" : "text-[11px]"}`}>
+            {[withArtist ? artistOf(song) : null, song.duration_s ? formatTime(song.duration_s) : null, "pronta"].filter(Boolean).join(" · ")}
           </div>
         </div>
-        <RoundButton icon="lyrics" label="Trocar letra" active={open === "lyrics"} onClick={() => toggle("lyrics")} />
-        <RoundButton icon="refresh" label="Reprocessar" active={open === "reprocess"} onClick={() => toggle("reprocess")} />
-        <RoundButton icon="clock" label="Histórico" active={open === "history"} onClick={() => toggle("history")} />
-        <RoundButton icon="trash" label="Remover" danger onClick={() => toggle("remove")} />
+        {!touch && actions}
       </div>
+      {/* on a phone, four 44 px buttons leave the title no room: they go on a line of their own */}
+      {touch && <div className="mt-1 flex justify-end gap-2">{actions}</div>}
       {open === "remove" && (
         <div className="mt-1.5 flex items-center gap-2 rounded-[10px] bg-(--menu-input) px-2.5 py-2 text-[12px]">
           <span className="min-w-0 flex-1">

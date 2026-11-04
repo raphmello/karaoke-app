@@ -74,6 +74,18 @@ body {
   --menu-err: #f87171;
 }
 
+/* The library's lists (tv/menu/SongList.tsx): no native bar beside the A–Z index; a thin one on a flat list */
+.menu-no-scrollbar {
+  scrollbar-width: none;
+}
+.menu-no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.menu-thin-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--menu-btn-hover) transparent;
+}
+
 /* Placeholders while the YouTube results come */
 @keyframes menu-pulse {
   50% {

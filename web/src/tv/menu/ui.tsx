@@ -72,7 +72,8 @@ export function IconButton({
   );
 }
 
-/** A round action button (30 px, inside a bigger tap area): grey, or yellow for the main action. */
+/** A round action button (30 px, inside a bigger tap area; big, 44 px, for the phones' library lists): grey, or
+ *  yellow for the main action. */
 export function RoundButton({
   icon,
   label,
@@ -80,6 +81,7 @@ export function RoundButton({
   accent,
   active,
   danger,
+  big,
 }: {
   icon: IconName;
   label: string;
@@ -87,6 +89,7 @@ export function RoundButton({
   accent?: boolean;
   active?: boolean;
   danger?: boolean;
+  big?: boolean;
 }) {
   const look = accent
     ? "bg-(--menu-accent) text-(--menu-on-accent) hover:brightness-110"
@@ -101,9 +104,9 @@ export function RoundButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full ${look}`}
+      className={`flex shrink-0 items-center justify-center rounded-full ${big ? "h-11 w-11" : "h-[30px] w-[30px]"} ${look}`}
     >
-      <Icon name={icon} className="h-4 w-4" />
+      <Icon name={icon} className={big ? "h-5 w-5" : "h-4 w-4"} />
     </button>
   );
 }
@@ -161,12 +164,14 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
   return <div className={`flex flex-col gap-2 rounded-xl bg-(--menu-field) px-[14px] py-3 ${className}`}>{children}</div>;
 }
 
-/** A song's picture, or a plain square without one. */
-export function Thumb({ src }: { src: string | null | undefined }) {
+/** A song's picture, or a plain square without one (38 px; big, 48 px, in the phones' library lists). Loaded only
+ *  when it nears the screen: a library has hundreds. */
+export function Thumb({ src, big }: { src: string | null | undefined; big?: boolean }) {
+  const size = big ? "h-12 w-12" : "h-[38px] w-[38px]";
   return src ? (
-    <img src={src} alt="" className="h-[38px] w-[38px] shrink-0 rounded-md object-cover" />
+    <img src={src} alt="" loading="lazy" className={`${size} shrink-0 rounded-md object-cover`} />
   ) : (
-    <div className="h-[38px] w-[38px] shrink-0 rounded-md bg-(--menu-thumb)" />
+    <div className={`${size} shrink-0 rounded-md bg-(--menu-thumb)`} />
   );
 }
 

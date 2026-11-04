@@ -2,6 +2,24 @@
 
 As mudanças de cada release do Karaokê, da mais nova para a mais antiga. As versões seguem o formato `ANO.MAJOR.MINOR`, e cada release tem um branch `release/<versão>` e uma tag `v<versão>`.
 
+## [2026.1.12] - 2026-11-04
+
+### Novidades
+
+- **Lista de músicas por artista:** em Sala → Adicionar e em Painel → Acervo, as músicas aparecem agrupadas por artista, em ordem alfabética ("The Beatles" fica no B), com o nome do artista fixo no topo enquanto as músicas dele passam. Durante a busca, a lista volta a ser simples, com o artista em cada linha.
+- **Índice de A a Z** na borda direita da lista: toque ou arraste para ir direto à letra.
+- **"Começar no tom" mostra o nome do tom,** como na barra ("Fá♯ maior"), e fica amarelo quando você muda. Numa música ainda não preparada, diz "tom a detectar".
+- **No celular, Adicionar abre um painel que sobe da base da tela,** com botões maiores para o dedo.
+- **Nota no fim da música, só pela diversão:** quando a música termina, a TV sorteia uma nota de 70 a 100, com um medidor que sobe ao som de um tambor de suspense, uma frase para a nota e confete a partir de 90. Dá para desligar em "Nota no fim", nos ajustes da barra da TV. Música pulada antes da metade fica sem nota, e as notas não são guardadas.
+
+### Correções
+
+- **Letra encontrada em mais vídeos:** a busca ignora o que os vídeos acrescentam ao título ("Karaoke", "【No Guide Melody】", "Lyric Romanized", "[Tradução em PT-BR]", o nome do canal no fim) e tenta também o nome entre parênteses, cada parte de um nome duplo e a artista e a música na ordem inversa. Entende ainda "Artista- Música" com o traço colado no nome.
+- **Letras que misturam versões em outras línguas** não são mais escolhidas quando há uma só na língua do vídeo. Em Detalhes, do Roberto Carlos, a letra vinha com estrofes em espanhol, italiano e inglês, que o vídeo não canta.
+- **Sincronia melhor quando a letra do LRCLIB tem linhas fora do lugar:** o app confere cada linha com o alinhamento da música inteira e fica com o lugar em que as palavras batem melhor com a voz. No Gangnam Style, várias linhas vinham de 3 a 7 segundos adiantadas ou atrasadas.
+- **A sincronia não "estica" mais a letra** quando a música inteira se perde no alinhamento, e as linhas que o alinhamento não conseguiu acompanhar ficam distribuídas no tempo entre as vizinhas, acendendo inteiras.
+- Para uma música que já estava no acervo, reprocesse em ☰ Menu → Painel → Acervo → Reprocessar: "Buscando a letra" para a letra, ou "Sincronizando a letra" para a sincronia.
+
 ## [2026.1.11] - 2026-10-18
 
 ### Novidades

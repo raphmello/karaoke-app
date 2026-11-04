@@ -6,8 +6,9 @@
 // the key of, remove and answer for their own songs. On a phone that manages the room, the player's controls go in
 // the "Cantando agora" card (the TV has its floating bar).
 import { useQuery } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useRef, useState } from "react";
-import { api, type QueueEntry, type RoomInfo } from "../../api";
+import { type ReactNode, useContext, useEffect, useRef, useState } from "react";
+import { api, type QueueEntry, type RoomInfo, type Song } from "../../api";
+import { artistOf, byArtist, inOrder } from "../../lib/library";
 import { clampSemitones, keyLabel, keyName, MAX_SEMITONES, MIN_SEMITONES, parseKey, signed } from "../../lib/keys";
 import { liveProgress, MAX_SONG_S, songTitle, statusText, tooLong } from "../../lib/queue";
 import { AddForm } from "../../room/AddSongs";
@@ -19,6 +20,7 @@ import type { PlayerState, useRoom } from "../../room/useRoom";
 import { DELAY_LIMIT_MS, DELAY_STEP_MS, seconds } from "../controls/FloatingBar";
 import { formatTime } from "../time";
 import { Icon } from "./icons";
+import { ArtistGroups, LibraryScroll, Touch } from "./SongList";
 import { Body, button, IconButton, Label, PanelHeader, primary, RoundButton, Tabs, Thumb, useToast } from "./ui";
 
 export type SalaTab = "fila" | "adicionar";
@@ -505,6 +507,7 @@ const DEBOUNCE_MS = 400;
 
 function Adicionar({ code }: { code: string }) {
   const toast = useToast();
+  const touch = useContext(Touch);
   const [text, setText] = useState("");
   const [remote, setRemote] = useState(""); // the text YouTube searches, after a pause
   const [more, setMore] = useState(false);
@@ -520,99 +523,131 @@ function Adicionar({ code }: { code: string }) {
   const youtube = useQuery({ queryKey: ["search", remote], queryFn: () => api.search(remote), enabled: !!remote });
   const fromYoutube = (youtube.data ?? []).filter((result) => !result.in_library); // in the library: shown there only
   const waitingForYoutube = q.length >= 2 && (remote !== q || youtube.isFetching);
+  const songs = library.data ?? [];
+  const groups = q ? null : byArtist(songs);
   const added = (title: string) => {
     setPicked(null);
     toast(`“${title}” entrou na fila`);
   };
+  const pick = (id: string) => setPicked(picked === id ? null : id);
+  const libraryRow = (song: Song) => (
+    <ResultRow
+      key={song.video_id}
+      sources={previewSources(song.video_id, song.media?.original)}
+      thumbnail={song.thumbnail_url}
+      title={songTitle(song)}
+      sub={[
+        q ? artistOf(song) : null, // grouped, the artist is in the header
+        song.duration_s ? formatTime(song.duration_s) : null,
+      ]}
+      picked={picked === song.video_id}
+      onPick={() => pick(song.video_id)}
+    >
+      <AddForm code={code} result={{ video_id: song.video_id, title: songTitle(song), original_key: song.original_key }} onAdded={added} />
+    </ResultRow>
+  );
 
   return (
-    <Body>
-      <label className="flex items-center gap-2 rounded-[10px] border border-transparent bg-(--menu-field) px-3 py-2 focus-within:border-(--menu-accent)">
-        <Icon name="search" className="h-[17px] w-[17px] text-(--menu-text-3)" />
-        <input
-          className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-(--menu-text-off)"
-          placeholder="Buscar música ou artista"
-          aria-label="Buscar música ou artista"
-          autoComplete="off"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-        />
-        {text && (
-          <button type="button" className="flex text-(--menu-text-3)" aria-label="Limpar busca" onClick={() => setText("")}>
-            <Icon name="x" className="h-4 w-4" />
-          </button>
-        )}
-      </label>
-
-      <Label>
-        <Icon name="books" className="h-3.5 w-3.5" />
-        {q ? `No acervo · ${library.data?.length ?? 0} resultado${library.data?.length === 1 ? "" : "s"}` : `No acervo · ${library.data?.length ?? 0}`}
-      </Label>
-      {library.isError && <p className="text-[12px] text-(--menu-err)">{library.error.message}</p>}
-      {library.data?.length === 0 && (
-        <p className="px-0.5 py-1 text-[12px] text-(--menu-text-3)">
-          {q ? "Nada no acervo com esse nome." : "O acervo ainda está vazio."}
-        </p>
-      )}
-      {library.data?.map((song) => (
-        <ResultRow
-          key={song.video_id}
-          sources={previewSources(song.video_id, song.media?.original)}
-          thumbnail={song.thumbnail_url}
-          title={songTitle(song)}
-          sub={[song.artist ?? song.channel, song.duration_s ? formatTime(song.duration_s) : null]}
-          picked={picked === song.video_id}
-          onPick={() => setPicked(picked === song.video_id ? null : song.video_id)}
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* opaque and above the list (LibraryScroll), with the space under the field: on an iPhone, rows showed
+          through between the field and the artist's sticky header */}
+      <div className="relative z-20 bg-(--menu-panel) px-[14px] pt-3 pb-2">
+        <label
+          className={`flex items-center gap-2 rounded-[10px] border border-transparent bg-(--menu-field) focus-within:border-(--menu-accent) ${
+            touch ? "px-3.5 py-2.5" : "px-3 py-2"
+          }`}
         >
-          <AddForm code={code} result={{ video_id: song.video_id, title: songTitle(song) }} onAdded={added} />
-        </ResultRow>
-      ))}
-
-      <Label>
-        <Icon name="youtube" className="h-3.5 w-3.5" />
-        No YouTube · 10 mais relevantes
-      </Label>
-      {q.length < 2 ? (
-        <p className="px-0.5 py-1 text-[12px] text-(--menu-text-3)">Digite ao menos 2 letras para buscar no YouTube.</p>
-      ) : waitingForYoutube ? (
-        Array.from({ length: YOUTUBE_SHOWN }, (_, i) => <SkeletonRow key={i} />)
-      ) : youtube.isError ? (
-        <p className="px-0.5 py-1 text-[12px] text-(--menu-err)">
-          A busca no YouTube falhou agora. O acervo continua funcionando; tente de novo em instantes.
-        </p>
-      ) : fromYoutube.length === 0 ? (
-        <p className="px-0.5 py-1 text-[12px] text-(--menu-text-3)">Nada novo no YouTube com esse nome.</p>
-      ) : (
-        <>
-          {(more ? fromYoutube : fromYoutube.slice(0, YOUTUBE_SHOWN)).map((result) => {
-            const id = `youtube:${result.video_id}`;
-            return (
-              <ResultRow
-                key={id}
-                sources={previewSources(result.video_id)}
-                thumbnail={result.thumbnail_url}
-                title={result.title ?? result.video_id}
-                sub={[result.channel, result.duration_s ? formatTime(result.duration_s) : null]}
-                warning={tooLong(result) ? `Longo demais para o karaokê (mais de ${MAX_SONG_S / 60} min)` : undefined}
-                picked={picked === id}
-                onPick={() => setPicked(picked === id ? null : id)}
-              >
-                <AddForm code={code} result={{ video_id: result.video_id, title: result.title }} onAdded={added} />
-              </ResultRow>
-            );
-          })}
-          {fromYoutube.length > YOUTUBE_SHOWN && (
-            <button className="py-1.5 text-center text-[12px] text-(--menu-accent)" onClick={() => setMore(!more)}>
-              {more ? "Mostrar menos" : `Mostrar mais ${fromYoutube.length - YOUTUBE_SHOWN}`}
+          <Icon name="search" className="h-[17px] w-[17px] text-(--menu-text-3)" />
+          <input
+            className={`min-w-0 flex-1 bg-transparent outline-none placeholder:text-(--menu-text-off) ${touch ? "text-[16px]" : ""}`}
+            placeholder="Buscar música ou artista"
+            aria-label="Buscar música ou artista"
+            autoComplete="off"
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+          />
+          {text && (
+            <button
+              type="button"
+              className={`flex items-center justify-center text-(--menu-text-3) ${touch ? "-m-2.5 h-11 w-11" : ""}`}
+              aria-label="Limpar busca"
+              onClick={() => setText("")}
+            >
+              <Icon name="x" className="h-4 w-4" />
             </button>
           )}
-        </>
-      )}
-    </Body>
+        </label>
+      </div>
+
+      <LibraryScroll groups={groups && groups.length ? groups : null}>
+        <Label first>
+          <Icon name="books" className="h-3.5 w-3.5" />
+          {q ? `No acervo · ${songs.length} resultado${songs.length === 1 ? "" : "s"}` : `No acervo · ${songs.length}`}
+        </Label>
+        {library.isError && <p className="text-[12px] text-(--menu-err)">{library.error.message}</p>}
+        {library.data?.length === 0 && (
+          <p className="px-0.5 py-1 text-[12px] text-(--menu-text-3)">{q ? "Nada encontrado no acervo." : "O acervo ainda está vazio."}</p>
+        )}
+        {groups ? <ArtistGroups groups={groups} row={libraryRow} /> : inOrder(songs).map(libraryRow)}
+
+        {q && (
+          <>
+            <Label>
+              <Icon name="youtube" className="h-3.5 w-3.5" />
+              No YouTube · 10 mais relevantes
+            </Label>
+            {q.length < 2 ? (
+              <p className="px-0.5 py-1 text-[12px] text-(--menu-text-3)">Digite ao menos 2 letras para buscar no YouTube.</p>
+            ) : waitingForYoutube ? (
+              Array.from({ length: YOUTUBE_SHOWN }, (_, i) => <SkeletonRow key={i} />)
+            ) : youtube.isError ? (
+              <div role="alert" className="flex flex-col items-start gap-1.5 rounded-xl bg-(--menu-field) px-[14px] py-3">
+                <div className="font-medium text-(--menu-err)">Não foi possível buscar no YouTube.</div>
+                <div className="text-[12px] text-(--menu-text-3)">O acervo continua disponível acima.</div>
+                <button className={`${button} mt-1 ${touch ? "min-h-11" : ""}`} onClick={() => void youtube.refetch()}>
+                  Tentar de novo
+                </button>
+              </div>
+            ) : fromYoutube.length === 0 ? (
+              <p className="px-0.5 py-1 text-[12px] text-(--menu-text-3)">Nada novo no YouTube com esse nome.</p>
+            ) : (
+              <>
+                {(more ? fromYoutube : fromYoutube.slice(0, YOUTUBE_SHOWN)).map((result) => {
+                  const id = `youtube:${result.video_id}`;
+                  return (
+                    <ResultRow
+                      key={id}
+                      sources={previewSources(result.video_id)}
+                      thumbnail={result.thumbnail_url}
+                      title={result.title ?? result.video_id}
+                      sub={[result.channel, result.duration_s ? formatTime(result.duration_s) : null]}
+                      warning={tooLong(result) ? `Longo demais para o karaokê (mais de ${MAX_SONG_S / 60} min)` : undefined}
+                      picked={picked === id}
+                      onPick={() => pick(id)}
+                    >
+                      <AddForm code={code} result={{ video_id: result.video_id, title: result.title }} onAdded={added} />
+                    </ResultRow>
+                  );
+                })}
+                {fromYoutube.length > YOUTUBE_SHOWN && (
+                  <button
+                    className={`text-center text-[12px] text-(--menu-accent) ${touch ? "min-h-11" : "py-1.5"}`}
+                    onClick={() => setMore(!more)}
+                  >
+                    {more ? "Mostrar menos" : `Mostrar mais ${fromYoutube.length - YOUTUBE_SHOWN}`}
+                  </button>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </LibraryScroll>
+    </div>
   );
 }
 
-/** A result: picture, title, who and how long, "Ouvir" and "Adicionar"; picked, it opens the add form below. */
+/** A result: picture, title, what is under it, "Ouvir" and "Adicionar"; picked, it opens the add form: below, in
+ *  the list (a yellow-edged card), or, on the phones, in a sheet from the bottom. */
 function ResultRow({
   sources,
   thumbnail,
@@ -632,27 +667,104 @@ function ResultRow({
   onPick: () => void;
   children: ReactNode;
 }) {
+  const touch = useContext(Touch);
   const preview = usePreview(sources);
   const playing = preview.state === "playing";
+  const listen = (
+    <RoundButton
+      icon={playing ? "stop" : "headphones"}
+      label={playing ? "Parar a prévia" : "Ouvir a prévia"}
+      active={playing}
+      big={touch}
+      onClick={preview.toggle}
+    />
+  );
+  const inline = picked && !touch;
+  const header = (
+    <div className="flex items-center gap-2.5">
+      <Thumb src={thumbnail} big={touch} />
+      <button className="min-w-0 flex-1 text-left" onClick={onPick}>
+        <div className={`truncate font-medium ${touch ? "text-[15px]" : ""}`}>{title}</div>
+        <div className={`truncate text-(--menu-text-3) ${touch ? "text-[12px]" : "text-[11px]"}`}>{sub.filter(Boolean).join(" · ")}</div>
+        {warning && <div className="text-[11px] text-(--menu-err)">{warning}</div>}
+      </button>
+      {listen}
+      <RoundButton
+        icon={inline ? "x" : "plus"}
+        label={inline ? "Fechar sem adicionar" : `Adicionar “${title}”`}
+        accent={!inline}
+        big={touch}
+        onClick={onPick}
+      />
+    </div>
+  );
   return (
-    <div className={`rounded-xl px-2 py-1 ${picked ? "border border-(--menu-accent) bg-(--menu-field) py-2" : "border border-transparent"}`}>
-      <div className="flex items-center gap-2.5">
-        <Thumb src={thumbnail} />
-        <button className="min-w-0 flex-1 text-left" onClick={onPick}>
-          <div className="truncate font-medium">{title}</div>
-          <div className="truncate text-[11px] text-(--menu-text-3)">{sub.filter(Boolean).join(" · ")}</div>
-          {warning && <div className="text-[11px] text-(--menu-err)">{warning}</div>}
-        </button>
-        <RoundButton
-          icon={playing ? "stop" : "headphones"}
-          label={playing ? "Parar a prévia" : "Ouvir a prévia"}
-          active={playing}
-          onClick={preview.toggle}
-        />
-        <RoundButton icon={picked ? "x" : "plus"} label={picked ? "Fechar sem adicionar" : "Adicionar à fila"} accent={!picked} onClick={onPick} />
-      </div>
+    <div
+      className={`rounded-xl px-2 ${touch ? "py-[7px]" : "py-1"} ${
+        inline ? "border border-(--menu-accent) bg-(--menu-field) py-2" : "border border-transparent"
+      }`}
+    >
+      {header}
       <PreviewBar preview={preview} />
-      {picked && children}
+      {inline && children}
+      {picked && touch && (
+        <BottomSheet onClose={onPick}>
+          <div className="flex items-center gap-2.5">
+            <Thumb src={thumbnail} big />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-[15px] font-medium">{title}</div>
+              <div className="truncate text-[12px] text-(--menu-text-3)">{sub.filter(Boolean).join(" · ")}</div>
+            </div>
+            <button
+              type="button"
+              className={`${button} h-11 ${playing ? "text-(--menu-accent)" : ""}`}
+              onClick={preview.toggle}
+            >
+              <Icon name={playing ? "stop" : "headphones"} className="h-4 w-4" />
+              {playing ? "Parar" : "Ouvir"}
+            </button>
+            <button
+              type="button"
+              aria-label="Fechar sem adicionar"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-(--menu-text-2) hover:bg-(--menu-btn)"
+              onClick={onPick}
+            >
+              <Icon name="x" className="h-5 w-5" />
+            </button>
+          </div>
+          <PreviewBar preview={preview} />
+          {children}
+        </BottomSheet>
+      )}
+    </div>
+  );
+}
+
+/** The phones' sheet from the bottom, over a darkened screen; it stays above the keyboard (the visual viewport). */
+function BottomSheet({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const [lift, setLift] = useState(0);
+  useEffect(() => {
+    const view = window.visualViewport;
+    if (!view) return;
+    const follow = () => setLift(Math.max(0, window.innerHeight - view.height - view.offsetTop));
+    follow();
+    view.addEventListener("resize", follow);
+    view.addEventListener("scroll", follow);
+    return () => {
+      view.removeEventListener("resize", follow);
+      view.removeEventListener("scroll", follow);
+    };
+  }, []);
+  return (
+    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-[rgba(0,0,0,.55)]" onClick={onClose} />
+      <div
+        className="absolute inset-x-0 mx-auto flex max-h-[85dvh] max-w-xl flex-col gap-3 overflow-y-auto rounded-t-[22px] bg-(--menu-field) px-4 pt-2 pb-[max(16px,env(safe-area-inset-bottom))] text-[13px]"
+        style={{ bottom: lift }}
+      >
+        <span aria-hidden="true" className="mx-auto h-1 w-10 shrink-0 rounded-full bg-(--menu-btn-hover)" />
+        {children}
+      </div>
     </div>
   );
 }
